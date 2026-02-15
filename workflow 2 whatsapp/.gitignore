@@ -1,0 +1,5 @@
+# workflow 2 whatsapp — local and generated
+node_modules/
+.env
+service-account.json
+*.log

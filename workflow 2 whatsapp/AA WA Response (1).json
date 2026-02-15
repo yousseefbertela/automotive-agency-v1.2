@@ -1,0 +1,672 @@
+{
+  "name": "AA WA Response",
+  "nodes": [
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{$json.query[\"hub.challenge\"]}}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        -1296,
+        -512
+      ],
+      "id": "77b2b37a-f4ed-402d-956b-b40e76a3d594",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "multipleMethods": true,
+        "path": "waba",
+        "responseMode": "responseNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/plain"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1520,
+        -512
+      ],
+      "id": "454c8420-eef6-423b-a4ff-a9832e8ecd8a",
+      "name": "Whatsapp Response",
+      "webhookId": "b144945e-b0ca-4be3-8f7d-3b213cb0196e"
+    },
+    {
+      "parameters": {
+        "content": "Requirements:\n1- Query in messages by message id (to get quote id)\n2- get quote using quote id\n3- notify telegram user with customer decision\n4- add items to odoo quotation\n5- feed user response to quotation on db (and change status: open)\n6- send whatsapp success or cancellation message back to client",
+        "height": 320
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        128,
+        -320
+      ],
+      "id": "3e4742bb-a510-4fa4-bd0b-34e50ed839df",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "query single message document by wp id"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        512,
+        -400
+      ],
+      "typeVersion": 1,
+      "id": "86083fb6-9a18-4b41-a0e9-e1132590c392",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Respond to Webhook').first().json.body.entry[0].changes[0].value.messages[0].button.payload }}",
+                    "rightValue": "تعديل / إلغاء",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a25880b5-d852-4e81-b1f2-db3419cfa52a"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "f0175953-54c5-4f72-8eba-2f82d03bcb7a",
+                    "leftValue": "={{ $('Respond to Webhook').first().json.body.entry[0].changes[0].value.messages[0].button.payload }}",
+                    "rightValue": "تأكيد العمل",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b664153f-f2a2-490f-9612-2f1054e9b3f9",
+                    "leftValue": "",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        48,
+        -624
+      ],
+      "id": "986eb413-668a-491f-b6a0-4f69f3acf85b",
+      "name": "Switch",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "resource": "custom",
+        "customResource": "sale.order.line",
+        "fieldsToCreateOrUpdate": {
+          "fields": [
+            {
+              "fieldName": "customer_lead",
+              "fieldValue": "1"
+            },
+            {
+              "fieldName": "name",
+              "fieldValue": "تكييف / كباس"
+            },
+            {
+              "fieldName": "order_id",
+              "fieldValue": "21952"
+            },
+            {
+              "fieldName": "price_unit",
+              "fieldValue": "=17385.13"
+            },
+            {
+              "fieldName": "product_uom_qty",
+              "fieldValue": "1"
+            },
+            {
+              "fieldName": "product_id",
+              "fieldValue": "12"
+            },
+            {
+              "fieldName": "product_uom",
+              "fieldValue": "1"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.odoo",
+      "typeVersion": 1,
+      "position": [
+        272,
+        -512
+      ],
+      "id": "a42d521a-ffc4-49de-afc2-3fdc64c511bd",
+      "name": "Create an item",
+      "credentials": {
+        "odooApi": {
+          "id": "o2bcsN7FCWCoeuxb",
+          "name": "Odoo account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "phoneNumberId": "804877562714688",
+        "recipientPhoneNumber": "=+{{ $('Respond to Webhook').item.json.body.entry[0].changes[0].value.contacts[0].wa_id }}",
+        "template": "partpilot_order_cancelled|en",
+        "components": {
+          "component": [
+            {
+              "bodyParameters": {
+                "parameter": [
+                  {
+                    "text": "={{ $('Get a quote').item.json.customer_name }}"
+                  },
+                  {
+                    "text": "={{ $('Get a quote').item.json.vehicle_details.series }}{{ $('Get a quote').item.json.vehicle_details.model }}"
+                  },
+                  {
+                    "text": "={{ $('Get tenant info').item.json.name }}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        272,
+        -704
+      ],
+      "id": "95b86394-f959-45db-99e6-3958ab2f3855",
+      "name": "send order cancellation",
+      "webhookId": "c742fa15-4f8c-46a7-854e-03c080954f3a",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "UutrSfGKp22xKQOs",
+          "name": "WhatsApp account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "projectId": "automotiveagent-83ade",
+        "collection": "=quotes",
+        "updateKey": "={{ $json.quoteId }}",
+        "columns": "status"
+      },
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -848,
+        -416
+      ],
+      "id": "4d72c6e7-3881-4f80-b922-e3ebd37cabd7",
+      "name": "change status to confirmed/cancelled",
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "qAVGOUZ9Of6FhABN",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": "automotiveagent-83ade",
+        "collection": "quotes",
+        "documentId": "={{ $('Get message document').item.json.quoteId }}"
+      },
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -624,
+        -608
+      ],
+      "id": "ba554186-8b6d-4228-85a3-468a6473c1ac",
+      "name": "Get a quote",
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "qAVGOUZ9Of6FhABN",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": "automotiveagent-83ade",
+        "collection": "messages",
+        "documentId": "={{ $json.body.entry[0].changes[0].value.messages[0].context.id }}"
+      },
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -1072,
+        -512
+      ],
+      "id": "5254bd45-b673-4fcc-ac52-05af27937336",
+      "name": "Get message document",
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "qAVGOUZ9Of6FhABN",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": "automotiveagent-83ade",
+        "collection": "tenants",
+        "documentId": "={{ $json.tenant_id }}"
+      },
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -176,
+        -608
+      ],
+      "id": "67af905b-c260-4cb4-b48c-10d77b952cc4",
+      "name": "Get tenant info",
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "qAVGOUZ9Of6FhABN",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": "automotiveagent-83ade",
+        "collection": "sessions",
+        "documentId": "={{ $json.chat_id }}"
+      },
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -400,
+        -608
+      ],
+      "id": "e186a36f-e373-4791-9b7a-c7a9074514a6",
+      "name": "Get session info",
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "qAVGOUZ9Of6FhABN",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "phoneNumberId": "804877562714688",
+        "recipientPhoneNumber": "=+{{ $('Respond to Webhook').item.json.body.entry[0].changes[0].value.contacts[0].wa_id }}",
+        "template": "partpilot_order_cancelled|en",
+        "components": {
+          "component": [
+            {
+              "bodyParameters": {
+                "parameter": [
+                  {
+                    "text": "={{ $json.customer_name }}"
+                  },
+                  {
+                    "text": "={{ $json.vehicle_details.series }}"
+                  },
+                  {
+                    "text": "={{ $('Get  basket in quote').item.json.total_cost }}"
+                  },
+                  {
+                    "text": "={{ $('Get tenant info').item.json.name }}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        -512
+      ],
+      "id": "f0ccf6b5-754c-416a-8a4f-d2ac009bdc09",
+      "name": "send order confirmation",
+      "webhookId": "c742fa15-4f8c-46a7-854e-03c080954f3a",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "UutrSfGKp22xKQOs",
+          "name": "WhatsApp account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "projectId": "automotiveagent-83ade",
+        "collection": "=quotes/{{ $json.quoteId }}/basket"
+      },
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        -848,
+        -608
+      ],
+      "id": "3ffe209c-4a79-40f1-9db9-b3a303436cce",
+      "name": "Get  basket in quote",
+      "executeOnce": true,
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "qAVGOUZ9Of6FhABN",
+          "name": "Google Firebase Cloud Firestore account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Get session info').item.json._id }}",
+        "text": "order has been cancelled by car owner",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        496,
+        -704
+      ],
+      "id": "41d4fe88-0949-438d-a72a-ad2e4f68a879",
+      "name": "Send a text message1",
+      "webhookId": "3bc3fd5b-ad17-46a9-9f72-3929432e8688",
+      "credentials": {
+        "telegramApi": {
+          "id": "qx5ajSiG1823Cd8i",
+          "name": "Telegram account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Get session info').item.json._id }}",
+        "text": "order has been confirmed by car owner",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        -512
+      ],
+      "id": "e2a66b9c-9363-43d5-91c5-6e5ead5178ae",
+      "name": "Send a text message2",
+      "webhookId": "3bc3fd5b-ad17-46a9-9f72-3929432e8688",
+      "credentials": {
+        "telegramApi": {
+          "id": "qx5ajSiG1823Cd8i",
+          "name": "Telegram account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://firestore.googleapis.com/v1/projects/automotiveagent-83ade/databases/(default)/documents/quotes/{{ $('Get message document').item.json.quoteId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "updateMask.fieldPaths",
+              "value": "status"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"fields\": {\n    \"status\": {\n      \"stringValue\": \"closed\"\n    }\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -448,
+        -800
+      ],
+      "id": "546ea128-4999-4d10-8795-9d0e500b9214",
+      "name": "change status"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Whatsapp Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get message document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "send order cancellation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create an item",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Create an item": {
+      "main": [
+        [
+          {
+            "node": "send order confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a quote": {
+      "main": [
+        [
+          {
+            "node": "Get session info",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "change status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get message document": {
+      "main": [
+        [
+          {
+            "node": "change status to confirmed/cancelled",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get  basket in quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get tenant info": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get session info": {
+      "main": [
+        [
+          {
+            "node": "Get tenant info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get  basket in quote": {
+      "main": [
+        [
+          {
+            "node": "Get a quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send order cancellation": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send order confirmation": {
+      "main": [
+        [
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8a976d2e-cbfa-41b8-9ee8-b07cba98a591",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7d936f9023d9d95c59593b24e4eb79b74a72adef06bd5ea4670b2f67e357e602"
+  },
+  "id": "XvAKFdP0K9lhj0Hk",
+  "tags": []
+}
