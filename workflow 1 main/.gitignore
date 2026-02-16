@@ -1,5 +1,0 @@
-# workflow 1 main — local and generated
-node_modules/
-.env
-service-account.json
-*.log
