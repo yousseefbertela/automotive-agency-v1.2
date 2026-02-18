@@ -148,9 +148,10 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
 
   if (hotItem && hotItem['Item Desc']) {
     log.info('part.flow: found in hot items', { partName });
-    // Direct lookup via scraper find-part
+    // AI agent decides which group the part belongs to, then scraper find-part (vin + group + partName)
     try {
-      const scraperResult = await scraper.findPart(vin, partName, correlationId);
+      const groupName = await ai.resolvePartGroup(partName, correlationId);
+      const scraperResult = await scraper.findPart(vin, partName, correlationId, groupName);
       if (scraperResult && scraperResult.part_number) {
         chosenPart = scraperResult;
       }
@@ -206,12 +207,36 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
           if (cached.subgroups) allSubgroups.push(...cached.subgroups);
         }
       } else {
-        // Scrape from Realoem
+        // Scrape from Realoem: get subgroups list then query each subgroup
         log.info('part.flow: scraping group from Realoem', { group });
         try {
-          const scraperData = await scraper.queryGroup(vin, group, correlationId);
-          if (scraperData && scraperData.subgroups) {
-            allSubgroups.push(...scraperData.subgroups);
+          const subgroupsList = await scraper.getSubgroups(vin, group, correlationId);
+          const subgroupNames = subgroupsList?.subgroups || [];
+          const subgroupArray = Array.isArray(subgroupNames) ? subgroupNames : [];
+          const collectedSubgroups = [];
+
+          for (const sgName of subgroupArray) {
+            const subgroupId = typeof sgName === 'string' ? sgName : (sgName?.name ?? sgName?.subgroup ?? String(sgName));
+            try {
+              const sgData = await scraper.querySubgroup(vin, group, subgroupId, correlationId);
+              if (sgData) collectedSubgroups.push(sgData);
+            } catch (sgErr) {
+              log.warn('part.flow: querySubgroup failed for one subgroup', { subgroup: subgroupId, error: sgErr.message });
+            }
+          }
+
+          // Fallback: if getSubgroups returned nothing, use v2-query-group (single call)
+          if (collectedSubgroups.length === 0) {
+            try {
+              const scraperData = await scraper.queryGroup(vin, group, correlationId);
+              if (scraperData?.subgroups?.length) collectedSubgroups.push(...scraperData.subgroups);
+            } catch (qgErr) {
+              log.warn('part.flow: scraper queryGroup fallback failed', { group, error: qgErr.message });
+            }
+          }
+
+          if (collectedSubgroups.length > 0) {
+            allSubgroups.push(...collectedSubgroups);
             // Save to Firestore cache
             try {
               await firestore.saveCatalogResult({
@@ -220,9 +245,9 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
                 model: quote.vehicle_details?.model || null,
                 engine: quote.vehicle_details?.engine || null,
                 group_name: group,
-                subgroups: scraperData.subgroups.map((sg) => ({
-                  subgroup: sg.subgroup || null,
-                  diagram_image: sg.diagram_image || null,
+                subgroups: collectedSubgroups.map((sg) => ({
+                  subgroup: sg.subgroup ?? null,
+                  diagram_image: sg.diagram_image ?? null,
                   parts: Array.isArray(sg.parts)
                     ? sg.parts.map((p) => ({
                         item_no: p.item_no || null,
@@ -242,7 +267,7 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
             }
           }
         } catch (err) {
-          log.warn('part.flow: scraper queryGroup failed', { group, error: err.message });
+          log.warn('part.flow: scraper getSubgroups/querySubgroup failed', { group, error: err.message });
         }
       }
     }

@@ -6,7 +6,7 @@ const firestore = require('../services/firestore.service');
 const quotesRepo = require('../db/quotes.repo');
 const stateRepo = require('../db/state.repo');
 const telegram = require('../services/telegram.service');
-const { normalizeVin } = require('../orchestration/router');
+const { normalizeVin } = require('../workflows/router');
 const logger = require('../utils/logger');
 
 /**

@@ -1,7 +1,7 @@
 'use strict';
 
 const OpenAI = require('openai');
-const { AGENT_SYSTEM_PROMPT, PART_CATEGORIZATION_PROMPT, EVALUATE_RESULTS_PROMPT, KIT_MATCHING_SYSTEM_PROMPT } = require('./prompts');
+const { AGENT_SYSTEM_PROMPT, PART_CATEGORIZATION_PROMPT, EVALUATE_RESULTS_PROMPT, KIT_MATCHING_SYSTEM_PROMPT, PART_GROUP_SELECTION_PROMPT, MAIN_GROUPS } = require('./prompts');
 const { parseFirstJson } = require('./parseFirstJson');
 const logger = require('../utils/logger');
 
@@ -13,7 +13,7 @@ function getClient() {
   return _openai;
 }
 
-const MODEL = () => process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const OPENAI_MODEL = 'gpt-4o-mini';
 
 /**
  * Main AI agent: classify user message and extract structured fields.
@@ -30,7 +30,7 @@ async function classifyMessage(userMessage, conversationHistory = [], correlatio
   ];
 
   const completion = await getClient().chat.completions.create({
-    model: MODEL(),
+    model: OPENAI_MODEL,
     messages,
     temperature: 0.1,
     max_tokens: 2000,
@@ -45,6 +45,42 @@ async function classifyMessage(userMessage, conversationHistory = [], correlatio
 }
 
 /**
+ * Resolve which Main Group a part belongs to (for find-part scraper).
+ * Uses hardcoded MAIN_GROUPS list. Returns exactly one group name.
+ */
+async function resolvePartGroup(partName, correlationId) {
+  const log = logger.child(correlationId);
+  log.info('ai.resolvePartGroup', { partName });
+
+  const completion = await getClient().chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [
+      { role: 'system', content: PART_GROUP_SELECTION_PROMPT },
+      { role: 'user', content: partName },
+    ],
+    temperature: 0.1,
+    max_tokens: 150,
+    response_format: { type: 'json_object' },
+  });
+
+  const raw = completion.choices[0]?.message?.content || '{}';
+  try {
+    const parsed = JSON.parse(raw);
+    const group = parsed.group && String(parsed.group).trim();
+    if (group && MAIN_GROUPS.includes(group)) {
+      log.info('ai.resolvePartGroup: resolved', { group });
+      return group;
+    }
+    const fallback = MAIN_GROUPS[0];
+    log.warn('ai.resolvePartGroup: invalid group, using fallback', { returned: group, fallback });
+    return fallback;
+  } catch {
+    log.warn('ai.resolvePartGroup: parse failed', { raw });
+    return MAIN_GROUPS[0];
+  }
+}
+
+/**
  * Categorize a part using LLM — used when alias map doesn't have the part.
  * Returns: { main_group, other_groups[], technical_name, likely_aliases[] }
  */
@@ -53,7 +89,7 @@ async function categorizePart(partName, correlationId) {
   log.info('ai.categorizePart', { partName });
 
   const completion = await getClient().chat.completions.create({
-    model: MODEL(),
+    model: OPENAI_MODEL,
     messages: [
       { role: 'system', content: PART_CATEGORIZATION_PROMPT },
       { role: 'user', content: partName },
@@ -95,7 +131,7 @@ Please analyze these two options and return *only* the JSON object of the single
 and must add diagram url dont forget`;
 
   const completion = await getClient().chat.completions.create({
-    model: MODEL(),
+    model: OPENAI_MODEL,
     messages: [
       { role: 'system', content: EVALUATE_RESULTS_PROMPT },
       { role: 'user', content: userContent },
@@ -125,7 +161,7 @@ async function matchKit(userInput, kitsJson, correlationId) {
   const userContent = `User input:\n${userInput}\n\nKits JSON:\n${JSON.stringify(kitsJson)}`;
 
   const completion = await getClient().chat.completions.create({
-    model: MODEL(),
+    model: OPENAI_MODEL,
     messages: [
       { role: 'system', content: KIT_MATCHING_SYSTEM_PROMPT },
       { role: 'user', content: userContent },
@@ -166,4 +202,4 @@ async function matchKit(userInput, kitsJson, correlationId) {
   }
 }
 
-module.exports = { classifyMessage, categorizePart, evaluateScraperResults, matchKit };
+module.exports = { classifyMessage, resolvePartGroup, categorizePart, evaluateScraperResults, matchKit };

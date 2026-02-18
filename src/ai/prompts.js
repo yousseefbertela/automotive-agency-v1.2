@@ -272,9 +272,70 @@ When matched=true:
 NEVER invent a kit that is not in kits_json.
 NEVER invent parts that are not in parts_list.`;
 
+/**
+ * Hardcoded Main Groups for RealOEM — used by find-part AI agent to decide which group a part belongs to.
+ */
+const MAIN_GROUPS = [
+  'TECHNICAL LITERATURE',
+  'SERVICE AND SCOPE OF REPAIR WORK',
+  'RETROFITTING / CONVERSION / ACCESSORIES',
+  'PARTS REPAIR SERVICE',
+  'ENGINE',
+  'ENGINE ELECTRICAL SYSTEM',
+  'FUEL PREPARATION SYSTEM',
+  'FUEL SUPPLY',
+  'RADIATOR',
+  'EXHAUST SYSTEM',
+  'CLUTCH',
+  'ENGINE AND TRANSMISSION SUSPENSION',
+  'MANUAL TRANSMISSION',
+  'AUTOMATIC TRANSMISSION',
+  'GEARSHIFT',
+  'DRIVE SHAFT',
+  'FRONT AXLE',
+  'STEERING',
+  'REAR AXLE',
+  'BRAKES',
+  'PEDALS',
+  'WHEELS',
+  'BODYWORK',
+  'VEHICLE TRIM',
+  'SEATS',
+  'SLIDING ROOF / FOLDING TOP',
+  'VEHICLE ELECTRICAL SYSTEM',
+  'INSTRUMENTS, MEASURING SYSTEMS',
+  'LIGHTING',
+  'HEATER AND AIR CONDITIONING',
+  'AUDIO, NAVIGATION, ELECTRONIC SYSTEMS',
+  'DISTANCE SYSTEMS, CRUISE CONTROL',
+  'EQUIPMENT PARTS',
+  'RESTRAINT SYSTEM AND ACCESSORIES',
+  'AUXILIARY MATERIALS, FLUIDS/COLORSYSTEM',
+  'COMMUNICATION SYSTEMS',
+  'VALUE PARTS&PACKAGES SERVICE AND REPAIR',
+];
+
+/**
+ * Prompt for AI to pick the single Main Group for a part (before find-part scraper).
+ * Output: JSON with single key "group" — value must be exactly one of MAIN_GROUPS.
+ */
+const PART_GROUP_SELECTION_PROMPT = `You are an automotive parts expert. Given a part name or description, you must choose the ONE Main Group it belongs to.
+
+RULES:
+- You MUST respond with ONLY a JSON object: { "group": "<exact group name>" }
+- The "group" value MUST be exactly one of the following (copy-paste, no changes):
+
+${MAIN_GROUPS.map((g) => `- ${g}`).join('\n')}
+
+- If the part could fit multiple groups, pick the most specific / likely one.
+- If truly unknown, pick the closest match from the list.
+- Output nothing else — no markdown, no explanation, only the JSON.`;
+
 module.exports = {
   AGENT_SYSTEM_PROMPT,
   PART_CATEGORIZATION_PROMPT,
   EVALUATE_RESULTS_PROMPT,
   KIT_MATCHING_SYSTEM_PROMPT,
+  MAIN_GROUPS,
+  PART_GROUP_SELECTION_PROMPT,
 };
