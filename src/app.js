@@ -31,6 +31,11 @@ app.use((req, _res, next) => {
 });
 
 // ── Routes ──
+// Root: simple response so "/" returns something (helps verify app is reachable on Railway)
+app.get('/', (_req, res) => {
+  res.json({ ok: true, service: 'PartPilot', endpoints: { health: 'GET /health', telegram: 'POST /webhook/telegram', whatsapp: 'POST /webhooks/waba' } });
+});
+
 // Telegram webhook
 app.use('/webhook', telegramRoutes);
 

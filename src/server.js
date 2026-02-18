@@ -7,7 +7,7 @@ const logger = require('./utils/logger');
 
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   logger.info(`Unified automotive workflows server started on port ${PORT}`, {
     env: process.env.NODE_ENV || 'development',
     node: process.version,
