@@ -5,6 +5,7 @@ const odoo = require('../services/odoo.service');
 const sheets = require('../integrations/sheets.client');
 const catalogRepo = require('../db/catalog.repo');
 const quotesRepo = require('../db/quotes.repo');
+const stateRepo = require('../db/state.repo');
 const telegram = require('../services/telegram.service');
 const ai = require('../ai/agent');
 const logger = require('../utils/logger');
@@ -118,6 +119,8 @@ async function handlePart(chatId, item, state, correlationId) {
   }
 
   log.info('part.flow: start', { chatId, partNames, vin, quoteId: quote._id });
+
+  const tenant = state.tenant_id ? await stateRepo.getTenant(state.tenant_id, correlationId) : null;
 
   for (const partName of partNames) {
     try {
@@ -357,7 +360,7 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
   // (In the n8n flow this waits for user confirmation — in code we auto-proceed)
   let products = [];
   try {
-    products = await odoo.searchProduct(partNumber, correlationId);
+    products = await odoo.searchProduct(partNumber, correlationId, tenant);
   } catch (err) {
     log.warn('part.flow: Odoo searchProduct failed', { error: err.message });
   }

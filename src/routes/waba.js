@@ -142,6 +142,7 @@ router.post('/', async (req, res) => {
       recipientPhone,
       quote,
       basketItems: basketItems || [],
+      tenant,
       tenantName,
       chatId: telegramChatId,
       correlationId,

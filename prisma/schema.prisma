@@ -39,6 +39,12 @@ model Tenant {
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
 
+  // Per-tenant Odoo (SaaS: one Odoo account per client). If set, used instead of env ODOO_*.
+  odoo_url      String?
+  odoo_db       String?
+  odoo_username String?
+  odoo_password String?
+
   users          User[]
   sessions       Session[]
   inboundEvents  InboundEvent[]

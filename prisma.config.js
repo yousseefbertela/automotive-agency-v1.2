@@ -1,10 +1,11 @@
-import 'dotenv/config';
-import { defineConfig } from 'prisma/config';
+'use strict';
 
-export default defineConfig({
+require('dotenv').config';
+
+module.exports = {
   earlyAccess: true,
   schema: 'prisma/schema.prisma',
   datasource: {
     url: process.env.DATABASE_URL || 'postgresql://localhost:5432/prisma',
   },
-});
+};

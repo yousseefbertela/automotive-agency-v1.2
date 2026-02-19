@@ -6,23 +6,35 @@ const logger = require('../utils/logger');
 const integrationLog = require('./integrationLog.service');
 
 /**
- * Unified Odoo JSON-RPC client.
- * Uses /jsonrpc endpoint (Odoo external API).
- *
- * ENV: ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD
+ * Odoo JSON-RPC client.
+ * - SaaS: pass odooConfig from Tenant (odoo_url, odoo_db, odoo_username, odoo_password) to use that client's Odoo.
+ * - Single-tenant: omit odooConfig to use env ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD.
  */
 
-let _uid = null;
+const _uidByKey = {};
 
-function cfg() {
+function cfg(odooConfig) {
+  if (odooConfig && odooConfig.odoo_url && odooConfig.odoo_db && odooConfig.odoo_username != null && odooConfig.odoo_password != null) {
+    return {
+      url: odooConfig.odoo_url,
+      db: odooConfig.odoo_db,
+      username: String(odooConfig.odoo_username),
+      password: String(odooConfig.odoo_password),
+    };
+  }
   const url = process.env.ODOO_URL;
   const db = process.env.ODOO_DB;
   const username = process.env.ODOO_USERNAME;
   const password = process.env.ODOO_PASSWORD;
   if (!url || !db || !username || !password) {
-    logger.warn('Odoo env vars not fully configured (ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD)');
+    logger.warn('Odoo not configured: set Tenant odoo_* fields (SaaS) or env ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD');
   }
-  return { url, db, username, password };
+  return { url: url || '', db: db || '', username: username || '', password: password || '' };
+}
+
+function configKey(c) {
+  if (!c || !c.url) return 'env';
+  return `${c.url}|${c.db}|${c.username}`;
 }
 
 async function jsonRpc(url, service, method, args) {
@@ -42,32 +54,34 @@ async function jsonRpc(url, service, method, args) {
   return res.data.result;
 }
 
-async function authenticate(correlationId) {
-  if (_uid) return _uid;
-  const { url, db, username, password } = cfg();
-  if (!url) {
+async function authenticate(correlationId, odooConfig) {
+  const c = cfg(odooConfig);
+  const key = configKey(c);
+  if (_uidByKey[key] != null) return _uidByKey[key];
+  if (!c.url) {
     logger.child(correlationId).warn('Odoo not configured — returning mock uid=1');
-    _uid = 1;
-    return _uid;
+    _uidByKey[key] = 1;
+    return 1;
   }
-  _uid = await jsonRpc(url, 'common', 'authenticate', [db, username, password, {}]);
-  if (!_uid) throw new Error('Odoo authentication failed');
-  logger.child(correlationId).info('Odoo authenticated', { uid: _uid });
-  return _uid;
+  const uid = await jsonRpc(c.url, 'common', 'authenticate', [c.db, c.username, c.password, {}]);
+  if (!uid) throw new Error('Odoo authentication failed');
+  logger.child(correlationId).info('Odoo authenticated', { uid, key: key === 'env' ? 'env' : 'tenant' });
+  _uidByKey[key] = uid;
+  return uid;
 }
 
-async function execute(model, method, args, kwargs = {}, correlationId) {
-  const { url, db, password } = cfg();
+async function execute(model, method, args, kwargs = {}, correlationId, odooConfig) {
+  const c = cfg(odooConfig);
   const start = Date.now();
   const operation = `${model}.${method}`;
-  if (!url) {
+  if (!c.url) {
     logger.child(correlationId).warn(`Odoo not configured — mock execute ${operation}`, { args });
     return method === 'create' ? Math.floor(Math.random() * 100000) : [];
   }
   try {
-    const uid = await authenticate(correlationId);
+    const uid = await authenticate(correlationId, odooConfig);
     const result = await withRetry(
-      () => jsonRpc(url, 'object', 'execute_kw', [db, uid, password, model, method, args, kwargs]),
+      () => jsonRpc(c.url, 'object', 'execute_kw', [c.db, uid, c.password, model, method, args, kwargs]),
       { retries: 1, label: `odoo.${operation}`, correlationId }
     );
     integrationLog.logCall(
@@ -84,74 +98,49 @@ async function execute(model, method, args, kwargs = {}, correlationId) {
   }
 }
 
-/* ─── High-level helpers matching n8n nodes ─── */
-
-/**
- * Search x_car by chassis (VIN).
- * Returns array of records.
- */
-async function searchCar(vin, correlationId) {
-  const ids = await execute(
+async function searchCar(vin, correlationId, odooConfig) {
+  return execute(
     'x_car',
     'search_read',
     [[['x_studio_car_chasis', 'like', vin]]],
     { fields: ['id', 'x_name', 'x_studio_car_chasis', 'x_studio_partner_id', 'x_studio_partner_phone'] },
-    correlationId
+    correlationId,
+    odooConfig
   );
-  return ids;
 }
 
-/**
- * Create a new x_car.
- */
-async function createCar(data, correlationId) {
-  const id = await execute('x_car', 'create', [data], {}, correlationId);
+async function createCar(data, correlationId, odooConfig) {
+  const id = await execute('x_car', 'create', [data], {}, correlationId, odooConfig);
   return { id };
 }
 
-/**
- * Update x_car partner_id.
- */
-async function updateCarPartner(carId, partnerId, correlationId) {
-  await execute('x_car', 'write', [[carId], { x_studio_partner_id: partnerId }], {}, correlationId);
+async function updateCarPartner(carId, partnerId, correlationId, odooConfig) {
+  await execute('x_car', 'write', [[carId], { x_studio_partner_id: partnerId }], {}, correlationId, odooConfig);
 }
 
-/**
- * Search res.partner by mobile.
- */
-async function searchContact(mobile, correlationId) {
-  const ids = await execute(
+async function searchContact(mobile, correlationId, odooConfig) {
+  return execute(
     'res.partner',
     'search_read',
     [[['mobile', 'like', mobile]]],
     { fields: ['id', 'name', 'mobile'], limit: 1 },
-    correlationId
+    correlationId,
+    odooConfig
   );
-  return ids;
 }
 
-/**
- * Create res.partner (customer).
- */
-async function createCustomer(name, mobile, correlationId) {
-  const id = await execute('res.partner', 'create', [{ name, mobile }], {}, correlationId);
+async function createCustomer(name, mobile, correlationId, odooConfig) {
+  const id = await execute('res.partner', 'create', [{ name, mobile }], {}, correlationId, odooConfig);
   return { id };
 }
 
-/**
- * Create sale.order (quotation).
- */
-async function createQuotation(data, correlationId) {
-  // data should contain: partner_id, partner_invoice_id, partner_shipping_id, x_studio_car
-  const id = await execute('sale.order', 'create', [data], {}, correlationId);
+async function createQuotation(data, correlationId, odooConfig) {
+  const id = await execute('sale.order', 'create', [data], {}, correlationId, odooConfig);
   return { id };
 }
 
-/**
- * Search product.template by OEN (part number).
- */
-async function searchProduct(partNumber, correlationId) {
-  const products = await execute(
+async function searchProduct(partNumber, correlationId, odooConfig) {
+  return execute(
     'product.template',
     'search_read',
     [[['x_studio_oen', 'like', partNumber]]],
@@ -162,51 +151,31 @@ async function searchProduct(partNumber, correlationId) {
         'categ_id', 'x_studio_internal_reference', 'x_studio_oen',
       ],
     },
-    correlationId
+    correlationId,
+    odooConfig
   );
-  return products;
 }
 
-/**
- * Create a sale.order.line in Odoo.
- * Matches n8n: "Create an item" node fields.
- *
- * @param {object} params
- * @param {number} params.orderId        - sale.order ID (from quote.quotation_id)
- * @param {number} params.productId      - product.product ID (from basket chosen_product_id)
- * @param {string} params.name           - line description
- * @param {number} params.priceUnit      - unit price
- * @param {number} [params.qty]          - quantity (default 1)
- * @param {string} correlationId
- */
-async function createOrderLine(params, correlationId) {
+async function createOrderLine(params, correlationId, odooConfig) {
   const log = logger.child(correlationId);
-  const {
-    orderId,
-    productId,
-    name,
-    priceUnit,
-    qty = 1,
-  } = params;
-
+  const { orderId, productId, name, priceUnit, qty = 1 } = params;
   log.info('odoo.createOrderLine', { orderId, productId, name, priceUnit, qty });
-
   const data = {
     customer_lead: 1,
     name: name || 'Part',
     order_id: orderId,
     price_unit: priceUnit || 0,
     product_uom_qty: qty,
-    product_id: productId || 12, // fallback from n8n JSON
+    product_id: productId || 12,
     product_uom: 1,
   };
-
-  const id = await execute('sale.order.line', 'create', [data], {}, correlationId);
+  const id = await execute('sale.order.line', 'create', [data], {}, correlationId, odooConfig);
   log.info('odoo.createOrderLine: created', { lineId: id });
   return { id };
 }
 
 module.exports = {
+  cfg,
   authenticate,
   execute,
   searchCar,

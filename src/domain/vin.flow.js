@@ -56,10 +56,12 @@ async function handleVin(chatId, item, state, correlationId) {
     model: carDetails.model,
   });
 
+  const tenant = state.tenant_id ? await stateRepo.getTenant(state.tenant_id, correlationId) : null;
+
   // Step 2: Search Odoo for existing car
   let cars = [];
   try {
-    cars = await odoo.searchCar(vin, correlationId);
+    cars = await odoo.searchCar(vin, correlationId, tenant);
   } catch (err) {
     log.warn('vin.flow: Odoo searchCar failed, continuing', { error: err.message });
   }
@@ -83,7 +85,8 @@ async function handleVin(chatId, item, state, correlationId) {
           x_studio_car_year: carDetails.prod_month || '',
           x_studio_specs: `body:${carDetails.body || ''}, model:${carDetails.model || ''}, market:${carDetails.market || ''}, engine:${carDetails.engine || ''}`,
         },
-        correlationId
+        correlationId,
+        tenant
       );
       carId = newCar.id;
     } catch (err) {
@@ -120,7 +123,7 @@ async function handleVin(chatId, item, state, correlationId) {
     };
     if (carId) saleOrderData.x_studio_car = carId;
 
-    const quotation = await odoo.createQuotation(saleOrderData, correlationId);
+    const quotation = await odoo.createQuotation(saleOrderData, correlationId, tenant);
     quotationId = quotation.id;
     log.info('vin.flow: Odoo quotation created', { quotationId });
   } catch (err) {

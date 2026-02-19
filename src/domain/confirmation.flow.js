@@ -16,7 +16,7 @@ const logger = require('../utils/logger');
  * @param {object} ctx - { recipientPhone, quote, basketItems, tenantName, chatId, correlationId }
  */
 async function run(ctx) {
-  const { recipientPhone, quote, basketItems, tenantName, chatId, correlationId } = ctx;
+  const { recipientPhone, quote, basketItems, tenant, tenantName, chatId, correlationId } = ctx;
   const log = logger.child(correlationId);
 
   log.info('confirmation.flow: start', {
@@ -56,7 +56,8 @@ async function run(ctx) {
             priceUnit: Number(priceUnit),
             qty: 1,
           },
-          correlationId
+          correlationId,
+          tenant
         );
       } catch (err) {
         log.error('confirmation.flow: Odoo createOrderLine failed', {

@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "start:deploy": "prisma migrate deploy && node src/server.js",
+    "postinstall": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "test": "jest --forceExit --detectOpenHandles",
     "set-webhook": "node scripts/set-webhook.js",
-    "build": "node -c src/server.js"
+    "build": "prisma generate && node -c src/server.js"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -269,7 +269,7 @@ Ensure all required variables are set:
 - `WHATSAPP_ACCESS_TOKEN`
 - `META_WEBHOOK_VERIFY_TOKEN`
 - `OPENAI_API_KEY`
-- `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`
+- Odoo: either set env `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD` (single-tenant) or set per-tenant in the `Tenant` table (`odoo_url`, `odoo_db`, `odoo_username`, `odoo_password`) for SaaS
 
 **Telegram-specific:**
 - `OCR_SPACE_API_KEY`
@@ -288,7 +288,7 @@ Ensure all required variables are set:
 1. Create a new project and add **PostgreSQL** from the Railway dashboard (or use an existing Postgres service).
 2. Copy the `DATABASE_URL` from the Postgres service variables into your app’s environment variables.
 3. Connect your Git repository and set all other env vars (Telegram, WhatsApp, OpenAI, Odoo, etc.).
-4. Build command: leave default or `npm install`. Start command: `npm start` (or `npx prisma migrate deploy && npm start` if you want to run migrations on deploy).
+4. Build: leave default (Railway runs `npm install`, which runs `postinstall` → `prisma generate`). Start command: **`npm run start:deploy`** so migrations run before the app (or set custom start to `npx prisma migrate deploy && node src/server.js`).
 5. Set `PORT` if required (Railway often sets it automatically).
 6. Set webhook URLs:
    - Telegram: `https://your-app.up.railway.app/webhook/telegram`
