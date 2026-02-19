@@ -1,8 +1,10 @@
 'use strict';
 
 const express = require('express');
+const { v4: uuidv4 } = require('uuid');
 const { handleUpdate } = require('../workflows/handleUpdate');
 const logger = require('../utils/logger');
+const { logInboundEvent } = require('../db/inboundEvent.repo');
 
 const router = express.Router();
 
@@ -25,11 +27,25 @@ router.post('/telegram', async (req, res) => {
   // Respond 200 immediately to Telegram (avoid timeouts)
   res.sendStatus(200);
 
-  // Process update asynchronously
   const update = req.body;
   if (!update) return;
 
-  // Fire and forget — errors are caught inside handleUpdate
+  const correlationId = uuidv4();
+  try {
+    const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? '';
+    const eventType = update.message?.photo ? 'photo' : update.message?.text ? 'text' : update.callback_query ? 'callback_query' : 'unknown';
+    logInboundEvent(
+      {
+        channel: 'TELEGRAM',
+        external_id: String(update.update_id ?? ''),
+        chat_id: chatId ? String(chatId) : '',
+        event_type: eventType,
+        payload: update,
+      },
+      correlationId
+    ).catch(() => {});
+  } catch (_) {}
+
   handleUpdate(update).catch((err) => {
     logger.error('telegram webhook: unhandled error in handleUpdate', {
       error: err.message,

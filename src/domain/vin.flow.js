@@ -2,7 +2,6 @@
 
 const scraper = require('../integrations/scraper.client');
 const odoo = require('../services/odoo.service');
-const firestore = require('../services/firestore.service');
 const quotesRepo = require('../db/quotes.repo');
 const stateRepo = require('../db/state.repo');
 const telegram = require('../services/telegram.service');

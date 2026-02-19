@@ -3,7 +3,7 @@
 const scraper = require('../integrations/scraper.client');
 const odoo = require('../services/odoo.service');
 const sheets = require('../integrations/sheets.client');
-const firestore = require('../services/firestore.service');
+const catalogRepo = require('../db/catalog.repo');
 const quotesRepo = require('../db/quotes.repo');
 const telegram = require('../services/telegram.service');
 const ai = require('../ai/agent');
@@ -196,7 +196,7 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
       // Check Firestore catalogResults cache
       let cachedResults = [];
       try {
-        cachedResults = await firestore.queryCatalogResults(group, typeCode);
+        cachedResults = await catalogRepo.queryCatalogResults(group, typeCode, correlationId);
       } catch (err) {
         log.warn('part.flow: catalog cache query failed', { error: err.message });
       }
@@ -239,29 +239,32 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
             allSubgroups.push(...collectedSubgroups);
             // Save to Firestore cache
             try {
-              await firestore.saveCatalogResult({
-                type_code: typeCode,
-                series: quote.vehicle_details?.series || null,
-                model: quote.vehicle_details?.model || null,
-                engine: quote.vehicle_details?.engine || null,
-                group_name: group,
-                subgroups: collectedSubgroups.map((sg) => ({
-                  subgroup: sg.subgroup ?? null,
-                  diagram_image: sg.diagram_image ?? null,
-                  parts: Array.isArray(sg.parts)
-                    ? sg.parts.map((p) => ({
-                        item_no: p.item_no || null,
-                        description: p.description || null,
-                        supplement: p.supplement || null,
-                        quantity: p.quantity || null,
-                        from_date: p.from_date ?? null,
-                        to_date: p.to_date ?? null,
-                        part_number: p.part_number || null,
-                        price: p.price || null,
-                      }))
-                    : [],
-                })),
-              });
+              await catalogRepo.saveCatalogResult(
+                {
+                  type_code: typeCode,
+                  series: quote.vehicle_details?.series || null,
+                  model: quote.vehicle_details?.model || null,
+                  engine: quote.vehicle_details?.engine || null,
+                  group_name: group,
+                  subgroups: collectedSubgroups.map((sg) => ({
+                    subgroup: sg.subgroup ?? null,
+                    diagram_image: sg.diagram_image ?? null,
+                    parts: Array.isArray(sg.parts)
+                      ? sg.parts.map((p) => ({
+                          item_no: p.item_no || null,
+                          description: p.description || null,
+                          supplement: p.supplement || null,
+                          quantity: p.quantity || null,
+                          from_date: p.from_date ?? null,
+                          to_date: p.to_date ?? null,
+                          part_number: p.part_number || null,
+                          price: p.price || null,
+                        }))
+                      : [],
+                  })),
+                },
+                correlationId
+              );
             } catch (cacheErr) {
               log.warn('part.flow: failed to cache catalog data', { error: cacheErr.message });
             }

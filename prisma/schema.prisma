@@ -1,0 +1,192 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum QuoteStatus {
+  OPEN
+  CONFIRMED
+  CANCELLED
+  CLOSED
+}
+
+enum Channel {
+  TELEGRAM
+  WHATSAPP
+}
+
+enum IntegrationService {
+  OCR
+  OPENAI
+  ODOO
+  SCRAPER
+  TELEGRAM
+  WHATSAPP
+}
+
+enum IntegrationStatus {
+  SUCCESS
+  ERROR
+}
+
+model Tenant {
+  id         String    @id
+  name       String?
+  status     String    @default("active")
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  users          User[]
+  sessions       Session[]
+  inboundEvents  InboundEvent[]
+  integrationLog IntegrationCall[]
+}
+
+model User {
+  id         String    @id @default(cuid())
+  chat_id    String    @unique
+  tenant_id  String
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenant_id], references: [id])
+  sessions      Session[]
+  inboundEvents InboundEvent[]
+  integrationLog IntegrationCall[]
+}
+
+model Session {
+  chat_id       String   @id
+  tenant_id     String
+  user_id       String
+  vin           String?
+  vehicle_info  Json?
+  quotation_id  Int?
+  basket        Json?
+  history       Json?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  user   User   @relation(fields: [user_id], references: [id])
+}
+
+model Quote {
+  id             String        @id @default(cuid())
+  quotation_id   Int?
+  customer_name  String?
+  customer_phone String?
+  vin            String
+  vehicle_details Json?
+  x_car_id       Int?
+  chat_id        String
+  status         QuoteStatus   @default(OPEN)
+  created_at     DateTime      @default(now())
+  updated_at     DateTime      @updatedAt
+
+  basketItems   BasketItem[]
+  messages      Message[]
+  inboundEvents InboundEvent[]
+  statusHistory QuoteStatusHistory[]
+  integrationLog IntegrationCall[]
+
+  @@index([status, chat_id])
+  @@index([status, chat_id, vin])
+}
+
+model BasketItem {
+  id               String    @id @default(cuid())
+  quote_id         String
+  part_number      String
+  products         Json
+  chosen_product_id Int?
+  total_cost       Float?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  quote Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+
+  @@unique([quote_id, part_number])
+}
+
+model CatalogResult {
+  id         String   @id @default(cuid())
+  type_code  String?
+  series     String?
+  model      String?
+  engine     String?
+  group_name String
+  subgroups  Json
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([group_name, type_code])
+}
+
+model Message {
+  id        String   @id
+  quote_id  String
+  created_at DateTime @default(now())
+
+  quote Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+}
+
+model InboundEvent {
+  id          String   @id @default(cuid())
+  channel     Channel
+  external_id String?
+  chat_id     String
+  tenant_id   String?
+  user_id     String?
+  quote_id    String?
+  event_type  String
+  payload     Json
+  received_at DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenant_id], references: [id])
+  user   User?   @relation(fields: [user_id], references: [id])
+  quote  Quote?  @relation(fields: [quote_id], references: [id])
+
+  @@index([channel, chat_id, received_at])
+  @@index([external_id])
+}
+
+model QuoteStatusHistory {
+  id          String       @id @default(cuid())
+  quote_id    String
+  from_status QuoteStatus?
+  to_status   QuoteStatus
+  channel     Channel
+  reason      String?
+  meta        Json?
+  created_at  DateTime     @default(now())
+
+  quote Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+
+  @@index([quote_id, created_at])
+}
+
+model IntegrationCall {
+  id           String            @id @default(cuid())
+  tenant_id    String?
+  user_id      String?
+  quote_id     String?
+  service      IntegrationService
+  operation    String
+  request_meta Json?
+  response_meta Json?
+  status       IntegrationStatus
+  duration_ms  Int?
+  created_at   DateTime          @default(now())
+
+  tenant Tenant? @relation(fields: [tenant_id], references: [id])
+  user   User?   @relation(fields: [user_id], references: [id])
+  quote  Quote?  @relation(fields: [quote_id], references: [id])
+
+  @@index([service, created_at])
+  @@index([tenant_id, created_at])
+}
+

@@ -3,6 +3,7 @@
 const axios = require('axios');
 const { withRetry } = require('../utils/retry');
 const logger = require('../utils/logger');
+const integrationLog = require('./integrationLog.service');
 
 /**
  * Unified Odoo JSON-RPC client.
@@ -57,15 +58,30 @@ async function authenticate(correlationId) {
 
 async function execute(model, method, args, kwargs = {}, correlationId) {
   const { url, db, password } = cfg();
+  const start = Date.now();
+  const operation = `${model}.${method}`;
   if (!url) {
-    logger.child(correlationId).warn(`Odoo not configured — mock execute ${model}.${method}`, { args });
+    logger.child(correlationId).warn(`Odoo not configured — mock execute ${operation}`, { args });
     return method === 'create' ? Math.floor(Math.random() * 100000) : [];
   }
-  const uid = await authenticate(correlationId);
-  return withRetry(
-    () => jsonRpc(url, 'object', 'execute_kw', [db, uid, password, model, method, args, kwargs]),
-    { retries: 1, label: `odoo.${model}.${method}`, correlationId }
-  );
+  try {
+    const uid = await authenticate(correlationId);
+    const result = await withRetry(
+      () => jsonRpc(url, 'object', 'execute_kw', [db, uid, password, model, method, args, kwargs]),
+      { retries: 1, label: `odoo.${operation}`, correlationId }
+    );
+    integrationLog.logCall(
+      { service: 'ODOO', operation, status: 'SUCCESS', duration_ms: Date.now() - start },
+      correlationId
+    ).catch(() => {});
+    return result;
+  } catch (err) {
+    integrationLog.logCall(
+      { service: 'ODOO', operation, status: 'ERROR', duration_ms: Date.now() - start, response_meta: { error: err.message } },
+      correlationId
+    ).catch(() => {});
+    throw err;
+  }
 }
 
 /* ─── High-level helpers matching n8n nodes ─── */

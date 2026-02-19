@@ -4,6 +4,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const logger = require('../utils/logger');
 const { withRetry } = require('../utils/retry');
+const integrationLog = require('./integrationLog.service');
 
 /**
  * Send an image buffer to ocr.space and return the extracted text.
@@ -17,6 +18,7 @@ const { withRetry } = require('../utils/retry');
 async function extractText(imageBuffer, correlationId) {
   const log = logger.child(correlationId);
   const apiKey = process.env.OCR_SPACE_API_KEY;
+  const start = Date.now();
 
   if (!apiKey) {
     log.warn('OCR_SPACE_API_KEY not set — returning empty string');
@@ -34,28 +36,44 @@ async function extractText(imageBuffer, correlationId) {
 
   log.info('ocr.space: sending image for OCR');
 
-  const res = await withRetry(
-    () =>
-      axios.post('https://api.ocr.space/parse/image', form, {
-        headers: {
-          ...form.getHeaders(),
-          apikey: apiKey,
-        },
-        timeout: 30000,
-        maxContentLength: 10 * 1024 * 1024,
-      }),
-    { retries: 2, label: 'ocr.space', correlationId }
-  );
+  try {
+    const res = await withRetry(
+      () =>
+        axios.post('https://api.ocr.space/parse/image', form, {
+          headers: {
+            ...form.getHeaders(),
+            apikey: apiKey,
+          },
+          timeout: 30000,
+          maxContentLength: 10 * 1024 * 1024,
+        }),
+      { retries: 2, label: 'ocr.space', correlationId }
+    );
 
-  const parsedResults = res.data?.ParsedResults;
-  if (!parsedResults || !parsedResults.length) {
-    log.warn('ocr.space returned no ParsedResults');
-    return '';
+    const parsedResults = res.data?.ParsedResults;
+    if (!parsedResults || !parsedResults.length) {
+      log.warn('ocr.space returned no ParsedResults');
+      integrationLog.logCall(
+        { service: 'OCR', operation: 'ocr_space', status: 'SUCCESS', duration_ms: Date.now() - start, response_meta: { parsedResultsCount: 0 } },
+        correlationId
+      ).catch(() => {});
+      return '';
+    }
+
+    const text = parsedResults[0].ParsedText || '';
+    log.info('ocr.space: extracted text', { textLength: text.length });
+    integrationLog.logCall(
+      { service: 'OCR', operation: 'ocr_space', status: 'SUCCESS', duration_ms: Date.now() - start, response_meta: { textLength: text.length } },
+      correlationId
+    ).catch(() => {});
+    return text.trim();
+  } catch (err) {
+    integrationLog.logCall(
+      { service: 'OCR', operation: 'ocr_space', status: 'ERROR', duration_ms: Date.now() - start, response_meta: { error: err.message } },
+      correlationId
+    ).catch(() => {});
+    throw err;
   }
-
-  const text = parsedResults[0].ParsedText || '';
-  log.info('ocr.space: extracted text', { textLength: text.length });
-  return text.trim();
 }
 
 module.exports = { extractText };

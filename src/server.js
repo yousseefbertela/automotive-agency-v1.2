@@ -29,9 +29,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   check('META_WEBHOOK_VERIFY_TOKEN');
 
   // Shared
-  check('FIRESTORE_PROJECT_ID');
-  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim()) configured.push('GOOGLE_SERVICE_ACCOUNT_JSON');
-  else check('GOOGLE_APPLICATION_CREDENTIALS');
+  check('DATABASE_URL');
   check('ODOO_URL');
 
   logger.info('Configuration status', {

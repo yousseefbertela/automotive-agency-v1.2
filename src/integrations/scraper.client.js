@@ -3,6 +3,25 @@
 const axios = require('axios');
 const { withRetry } = require('../utils/retry');
 const logger = require('../utils/logger');
+const integrationLog = require('../services/integrationLog.service');
+
+async function withScraperLog(operation, fn, correlationId) {
+  const start = Date.now();
+  try {
+    const result = await fn();
+    integrationLog.logCall(
+      { service: 'SCRAPER', operation, status: 'SUCCESS', duration_ms: Date.now() - start },
+      correlationId
+    ).catch(() => {});
+    return result;
+  } catch (err) {
+    integrationLog.logCall(
+      { service: 'SCRAPER', operation, status: 'ERROR', duration_ms: Date.now() - start, response_meta: { error: err.message } },
+      correlationId
+    ).catch(() => {});
+    throw err;
+  }
+}
 
 // RealOEM scraper (Cloud Run). Base URL for all v2 endpoints.
 const REALOEM_BASE = () =>
@@ -22,12 +41,11 @@ async function getCarDetails(vin, correlationId) {
   const url = base(`/realoem/v2-get-car-details/${encodeURIComponent(vin)}`);
   const log = logger.child(correlationId);
   log.info('scraper.getCarDetails', { vin, url });
-
-  const res = await withRetry(
-    () => axios.get(url, { timeout: 30000 }),
-    { retries: 2, label: 'scraper.getCarDetails', correlationId }
+  return withScraperLog(
+    'getCarDetails',
+    () => withRetry(() => axios.get(url, { timeout: 30000 }), { retries: 2, label: 'scraper.getCarDetails', correlationId }).then((res) => res.data),
+    correlationId
   );
-  return res.data;
 }
 
 /**
@@ -42,12 +60,11 @@ async function findPart(vin, part, correlationId, groupName = null) {
   const log = logger.child(correlationId);
   const body = groupName ? { vin, group: groupName, part } : { vin, part };
   log.info('scraper.findPart', { vin, part, group: groupName || '(none)' });
-
-  const res = await withRetry(
-    () => axios.post(url, body, { timeout: 30000 }),
-    { retries: 1, label: 'scraper.findPart', correlationId }
+  return withScraperLog(
+    'findPart',
+    () => withRetry(() => axios.post(url, body, { timeout: 30000 }), { retries: 1, label: 'scraper.findPart', correlationId }).then((res) => res.data),
+    correlationId
   );
-  return res.data;
 }
 
 /**
@@ -59,12 +76,11 @@ async function queryGroup(vin, group, correlationId) {
   const url = base('/realoem/v2-query-group');
   const log = logger.child(correlationId);
   log.info('scraper.queryGroup', { vin, group });
-
-  const res = await withRetry(
-    () => axios.post(url, { vin, group }, { timeout: 60000 }),
-    { retries: 1, baseDelay: 2000, label: 'scraper.queryGroup', correlationId }
+  return withScraperLog(
+    'queryGroup',
+    () => withRetry(() => axios.post(url, { vin, group }, { timeout: 60000 }), { retries: 1, baseDelay: 2000, label: 'scraper.queryGroup', correlationId }).then((res) => res.data),
+    correlationId
   );
-  return res.data;
 }
 
 /**
@@ -76,12 +92,11 @@ async function getSubgroups(vin, group, correlationId) {
   const url = base('/realoem/v2-get-subgroups');
   const log = logger.child(correlationId);
   log.info('scraper.getSubgroups', { vin, group });
-
-  const res = await withRetry(
-    () => axios.post(url, { vin, group }, { timeout: 60000 }),
-    { retries: 1, baseDelay: 2000, label: 'scraper.getSubgroups', correlationId }
+  return withScraperLog(
+    'getSubgroups',
+    () => withRetry(() => axios.post(url, { vin, group }, { timeout: 60000 }), { retries: 1, baseDelay: 2000, label: 'scraper.getSubgroups', correlationId }).then((res) => res.data),
+    correlationId
   );
-  return res.data;
 }
 
 /**
@@ -93,12 +108,11 @@ async function querySubgroup(vin, group, subgroup, correlationId) {
   const url = base('/realoem/v2-query-subgroup');
   const log = logger.child(correlationId);
   log.info('scraper.querySubgroup', { vin, group, subgroup });
-
-  const res = await withRetry(
-    () => axios.post(url, { vin, group, subgroup }, { timeout: 60000 }),
-    { retries: 1, baseDelay: 2000, label: 'scraper.querySubgroup', correlationId }
+  return withScraperLog(
+    'querySubgroup',
+    () => withRetry(() => axios.post(url, { vin, group, subgroup }, { timeout: 60000 }), { retries: 1, baseDelay: 2000, label: 'scraper.querySubgroup', correlationId }).then((res) => res.data),
+    correlationId
   );
-  return res.data;
 }
 
 /**

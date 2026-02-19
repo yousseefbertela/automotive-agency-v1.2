@@ -4,15 +4,17 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const { verifyMetaSignature } = require('../utils/verifyMetaSignature');
-const firestoreService = require('../services/firestore.service');
+const messageRepo = require('../db/message.repo');
+const quotesRepo = require('../db/quotes.repo');
+const stateRepo = require('../db/state.repo');
+const { logInboundEvent } = require('../db/inboundEvent.repo');
 const cancellationFlow = require('../domain/cancellation.flow');
 const confirmationFlow = require('../domain/confirmation.flow');
-
 const router = express.Router();
 
 /* ────────────────────────────────────────────
    GET /webhooks/waba — Meta webhook verification
-   Matches n8n: "Whatsapp Response" GET method
+   Matches n8n flow: "Whatsapp Response" GET method
    ──────────────────────────────────────────── */
 router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -35,7 +37,6 @@ router.get('/', (req, res) => {
    Matches n8n: "Whatsapp Response" POST → full pipeline
    ──────────────────────────────────────────── */
 router.post('/', async (req, res) => {
-  // Always respond 200 immediately (Meta requires fast response)
   res.sendStatus(200);
 
   const correlationId = uuidv4();
@@ -45,7 +46,23 @@ router.post('/', async (req, res) => {
     const body = req.body;
     if (!body) return;
 
-    // Validate Meta signature if configured
+    try {
+      const entry = body.entry?.[0];
+      const value = entry?.changes?.[0]?.value;
+      const msgs = value?.messages;
+      const first = msgs?.[0];
+      logInboundEvent(
+        {
+          channel: 'WHATSAPP',
+          external_id: first?.id ?? value?.metadata?.phone_number_id?.toString?.() ?? null,
+          chat_id: value?.contacts?.[0]?.wa_id ? String(value.contacts[0].wa_id) : '',
+          event_type: first?.type ?? (first?.button ? 'interactive' : 'unknown'),
+          payload: body,
+        },
+        correlationId
+      ).catch(() => {});
+    } catch (_) {}
+
     if (process.env.META_APP_SECRET && req.rawBody) {
       const sig = req.headers['x-hub-signature-256'];
       if (!verifyMetaSignature(req.rawBody, sig)) {
@@ -54,7 +71,6 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Extract the message from the webhook payload
     const entry = body.entry?.[0];
     const change = entry?.changes?.[0];
     const value = change?.value;
@@ -86,8 +102,7 @@ router.post('/', async (req, res) => {
       waId,
     });
 
-    // ── Step 1: Get message document (messages/{context.id}) ──
-    const messageDoc = await firestoreService.getMessageDocument(contextId, correlationId);
+    const messageDoc = await messageRepo.getMessageDocument(contextId, correlationId);
     if (!messageDoc || !messageDoc.quoteId) {
       log.error('waba.post: message document not found or missing quoteId', { contextId });
       return;
@@ -95,26 +110,23 @@ router.post('/', async (req, res) => {
 
     const quoteId = messageDoc.quoteId;
 
-    // ── Step 2: Parallel — update status + get basket ──
     const statusValue = buttonPayload === 'تأكيد العمل' ? 'confirmed' : 'cancelled';
 
     const [, basketItems] = await Promise.all([
-      firestoreService.updateQuoteStatus(quoteId, statusValue, correlationId),
-      firestoreService.getBasketItems(quoteId, correlationId),
+      quotesRepo.updateQuoteStatus(quoteId, statusValue, correlationId),
+      quotesRepo.getBasketItems(quoteId, correlationId),
     ]);
 
-    // ── Step 3: Get quote ──
-    const quote = await firestoreService.getQuote(quoteId, correlationId);
+    const quote = await quotesRepo.getQuote(quoteId, correlationId);
     if (!quote) {
       log.error('waba.post: quote not found', { quoteId });
       return;
     }
 
-    // ── Step 4: Parallel — get session + close quote ──
     const chatId = quote.chat_id;
     const [session] = await Promise.all([
-      firestoreService.getSession(chatId, correlationId),
-      firestoreService.closeQuote(quoteId, correlationId),
+      stateRepo.getSession(chatId, correlationId),
+      quotesRepo.closeQuote(quoteId, correlationId),
     ]);
 
     if (!session) {
@@ -122,12 +134,10 @@ router.post('/', async (req, res) => {
       return;
     }
 
-    // ── Step 5: Get tenant info ──
-    const tenant = await firestoreService.getTenant(session.tenant_id, correlationId);
+    const tenant = await stateRepo.getTenant(session.tenant_id, correlationId);
     const tenantName = tenant?.name || '';
 
-    // ── Step 6: Switch on button payload ──
-    const telegramChatId = session._id; // session doc ID = chat_id
+    const telegramChatId = session._id;
     const ctx = {
       recipientPhone,
       quote,
@@ -152,5 +162,11 @@ router.post('/', async (req, res) => {
     log.error('waba.post: unhandled error', { error: err.message, stack: err.stack });
   }
 });
+
+function trimPayload(payload, maxSize = 50000) {
+  const str = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  if (str.length <= maxSize) return payload;
+  return { _trimmed: true, length: str.length, preview: str.slice(0, 500) };
+}
 
 module.exports = router;

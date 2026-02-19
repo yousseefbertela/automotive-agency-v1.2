@@ -22,7 +22,8 @@ This project consolidates two previously separate n8n workflows into one clean, 
 Both workflows share:
 - Single Express server
 - Unified configuration and environment variables
-- Shared services (Firestore, Odoo, Telegram)
+- PostgreSQL via Prisma (sessions, quotes, basket, messages, catalog cache)
+- Shared services (Odoo, Telegram, WhatsApp)
 - Common logging and error handling
 - Single installation and deployment process
 
@@ -57,7 +58,7 @@ Both workflows share:
 │   ├── services/                 # External service integrations
 │   │   ├── telegram.service.js   # Telegram Bot API
 │   │   ├── whatsapp.service.js   # WhatsApp Business API
-│   │   ├── firestore.service.js  # Firebase/Firestore
+│   │   ├── prisma.service.js     # Prisma client (PostgreSQL)
 │   │   ├── odoo.service.js       # Odoo ERP JSON-RPC
 │   │   └── ocr.service.js        # OCR.space API
 │   │
@@ -100,7 +101,7 @@ Both workflows share:
 #### 2. **Shared Service Layer**
 All external integrations are consolidated into reusable services:
 - `telegram.service.js` - Used by both workflows
-- `firestore.service.js` - Unified Firestore operations
+- `prisma.service.js` - Prisma client for PostgreSQL (all app data)
 - `odoo.service.js` - Merged Odoo client with all methods
 
 #### 3. **Unified Configuration**
@@ -121,7 +122,7 @@ All external integrations are consolidated into reusable services:
 
 - **Node.js** >= 20.0.0
 - **npm** (comes with Node.js)
-- Firebase/Firestore project
+- **PostgreSQL** (local or hosted, e.g. Railway)
 - Odoo instance (optional, can run in mock mode)
 - Telegram Bot Token
 - WhatsApp Business API credentials
@@ -144,18 +145,31 @@ All external integrations are consolidated into reusable services:
    ```bash
    cp .env.example .env
    ```
-   Edit `.env` and fill in your credentials:
+   Edit `.env` and set at least:
+   - **`DATABASE_URL`** — PostgreSQL connection string (required). Example: `postgresql://user:password@localhost:5432/mydb?schema=public`
    - Telegram: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`
    - WhatsApp: `WHATSAPP_ACCESS_TOKEN`, `META_WEBHOOK_VERIFY_TOKEN`, `META_APP_SECRET`
    - OpenAI: `OPENAI_API_KEY`
    - OCR: `OCR_SPACE_API_KEY`
-   - Firebase: `GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`
-   - Firestore: `FIRESTORE_PROJECT_ID`
    - Odoo: `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`
    - Scrapers: `SCRAPER_BASE_URL`, `SCRAPER_API_COM_KEY`
    - Google Sheets: `SHEETS_HOT_ITEMS_SPREADSHEET_ID`, `SHEETS_ALIAS_MAP_SPREADSHEET_ID`, `SHEETS_KITS_SPREADSHEET_ID`
 
-4. **Start the server:**
+4. **Create the database and run migrations:**
+   ```bash
+   # Generate Prisma client (after schema or dependency changes)
+   npm run prisma:generate
+
+   # Create DB tables (run against your PostgreSQL)
+   npx prisma migrate deploy
+   ```
+   For local development with a fresh DB you can use:
+   ```bash
+   npx prisma migrate dev --name init
+   ```
+   This applies the migration in `prisma/migrations/` and generates the client.
+
+5. **Start the server:**
    ```bash
    # Development (with auto-reload)
    npm run dev
@@ -163,8 +177,7 @@ All external integrations are consolidated into reusable services:
    # Production
    npm start
    ```
-
-   The server will start on `http://localhost:3000` (or the port specified in `.env`).
+   The server listens on `http://localhost:3000` (or `PORT` in `.env`).
 
 ---
 
@@ -251,12 +264,11 @@ curl -X POST http://localhost:3000/webhooks/waba \
 Ensure all required variables are set:
 
 **Critical (both workflows):**
+- `DATABASE_URL` — PostgreSQL connection string (e.g. Railway Postgres provides this)
 - `TELEGRAM_BOT_TOKEN`
 - `WHATSAPP_ACCESS_TOKEN`
 - `META_WEBHOOK_VERIFY_TOKEN`
 - `OPENAI_API_KEY`
-- `FIRESTORE_PROJECT_ID`
-- `GOOGLE_SERVICE_ACCOUNT_JSON` (or `GOOGLE_APPLICATION_CREDENTIALS`)
 - `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`
 
 **Telegram-specific:**
@@ -271,14 +283,23 @@ Ensure all required variables are set:
 
 ### Deployment Platforms
 
-#### Railway / Render / Heroku
+#### Railway (recommended)
 
-1. Connect your Git repository
-2. Set environment variables in the dashboard
-3. Deploy command: `npm start`
-4. Set webhook URLs:
-   - Telegram: `https://your-domain.com/webhook/telegram`
-   - WhatsApp: `https://your-domain.com/webhooks/waba`
+1. Create a new project and add **PostgreSQL** from the Railway dashboard (or use an existing Postgres service).
+2. Copy the `DATABASE_URL` from the Postgres service variables into your app’s environment variables.
+3. Connect your Git repository and set all other env vars (Telegram, WhatsApp, OpenAI, Odoo, etc.).
+4. Build command: leave default or `npm install`. Start command: `npm start` (or `npx prisma migrate deploy && npm start` if you want to run migrations on deploy).
+5. Set `PORT` if required (Railway often sets it automatically).
+6. Set webhook URLs:
+   - Telegram: `https://your-app.up.railway.app/webhook/telegram`
+   - WhatsApp: `https://your-app.up.railway.app/webhooks/waba`
+
+#### Render / Heroku
+
+1. Attach a PostgreSQL add-on and set `DATABASE_URL`.
+2. Set all other environment variables.
+3. Deploy command: `npm start`. Run migrations once (e.g. `npx prisma migrate deploy`) in a release phase or manually.
+4. Set webhook URLs to your app domain.
 
 #### Docker
 
@@ -316,8 +337,7 @@ docker run -p 3000:3000 --env-file .env automotive-workflows
 
 #### **Services**
 - **Telegram:** Merged `telegram.client.js` (workflow 1) and `telegram.service.js` (workflow 2) → `src/services/telegram.service.js`
-- **Firestore:** Merged `firestore.client.js` (workflow 1) and `firestore.service.js` (workflow 2) → `src/services/firestore.service.js`
-  - Combined all Firestore operations (sessions, quotes, basket, messages, tenants)
+- **Database:** Migrated from Firestore to **PostgreSQL with Prisma**. All data (sessions, users, tenants, quotes, basket, catalog cache, messages) is in Postgres. See `prisma/schema.prisma`, `src/db/*.repo.js`, and `src/services/prisma.service.js`.
 - **Odoo:** Merged `odoo.client.js` (workflow 1) and `odoo.service.js` (workflow 2) → `src/services/odoo.service.js`
   - Unified JSON-RPC client with all methods (car search, quotation, order lines)
 - **WhatsApp:** Kept as-is from workflow 2 → `src/services/whatsapp.service.js`
@@ -337,14 +357,14 @@ docker run -p 3000:3000 --env-file .env automotive-workflows
 #### **Dependencies**
 - **Before:** Two `package.json` files with mostly identical deps
 - **After:** Single `package.json` with merged dependencies
-  - `express`, `axios`, `dotenv`, `firebase-admin`, `uuid` (common)
+  - `express`, `axios`, `dotenv`, `@prisma/client`, `prisma`, `uuid` (common)
   - `openai`, `googleapis`, `form-data` (workflow 1)
   - No conflicts, all versions aligned
 
 #### **State/Session Handling**
-- **Workflow 1:** Uses `state.repo.js` for session management
-- **Workflow 2:** Directly calls Firestore for session/quote lookups
-- **After:** Both approaches preserved, no conflicts (different use cases)
+- **Workflow 1:** Uses `state.repo.js` for session management (Prisma/Postgres)
+- **Workflow 2:** Uses same Prisma repos for session/quote lookups
+- **After:** Single Postgres DB for all app data
 
 ---
 
@@ -356,10 +376,9 @@ docker run -p 3000:3000 --env-file .env automotive-workflows
 - Check `.env` file exists and has `TELEGRAM_BOT_TOKEN=...`
 - Restart server after changing `.env`
 
-**2. `Firestore permission denied`**
-- Verify `GOOGLE_SERVICE_ACCOUNT_JSON` is valid JSON (no newlines if inline)
-- Or ensure `GOOGLE_APPLICATION_CREDENTIALS` points to valid file
-- Check Firestore rules allow read/write
+**2. `Database connection` / Prisma errors**
+- Ensure `DATABASE_URL` is set and correct (PostgreSQL URL with user, password, host, port, database name).
+- Run `npx prisma migrate deploy` to create/update tables.
 
 **3. `Odoo authentication failed`**
 - Verify `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_PASSWORD`
@@ -434,7 +453,7 @@ This project was converted from n8n workflows. To maintain behavior parity:
 
 - Converted from n8n workflows by senior engineer
 - Original workflows designed for automotive parts quotation system
-- Integrates with: Telegram, WhatsApp, OpenAI, Odoo, Firebase, Google Sheets, RealOEM
+- Integrates with: Telegram, WhatsApp, OpenAI, Odoo, PostgreSQL (Prisma), Google Sheets, RealOEM
 
 ---
 
