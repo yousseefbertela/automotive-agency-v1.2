@@ -5,28 +5,44 @@ const logger = require('../utils/logger');
 
 let _sheets = null;
 
+/**
+ * Build a Google Sheets v4 client.
+ *
+ * Priority:
+ *  1. GOOGLE_SERVICE_ACCOUNT_JSON — full service-account JSON string (private sheets)
+ *  2. GOOGLE_SHEETS_API_KEY       — plain API key (public/shared sheets, no service account needed)
+ *  3. Application Default Credentials (ADC) — local gcloud auth or GCP-managed identity
+ */
 async function getSheetsClient() {
   if (_sheets) return _sheets;
-  const json = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  let auth;
-  if (json && json.trim()) {
+
+  // Option 1: Service Account JSON (works for private & public sheets)
+  const saJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (saJson && saJson.trim()) {
     try {
-      const credentials = typeof json === 'string' ? JSON.parse(json) : json;
-      auth = new google.auth.GoogleAuth({
-        credentials: credentials,
+      const credentials = typeof saJson === 'string' ? JSON.parse(saJson) : saJson;
+      const auth = new google.auth.GoogleAuth({
+        credentials,
         scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
       });
+      _sheets = google.sheets({ version: 'v4', auth });
+      return _sheets;
     } catch (e) {
-      logger.warn('sheets: invalid GOOGLE_SERVICE_ACCOUNT_JSON, falling back to file path');
-      auth = new google.auth.GoogleAuth({
-        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-      });
+      logger.warn('sheets: GOOGLE_SERVICE_ACCOUNT_JSON parse failed, trying API key / ADC');
     }
-  } else {
-    auth = new google.auth.GoogleAuth({
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
   }
+
+  // Option 2: Plain API key (sheets must be publicly shared "Anyone with link can view")
+  const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
+  if (apiKey && apiKey.trim()) {
+    _sheets = google.sheets({ version: 'v4', auth: apiKey });
+    return _sheets;
+  }
+
+  // Option 3: Application Default Credentials (ADC)
+  const auth = new google.auth.GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  });
   _sheets = google.sheets({ version: 'v4', auth });
   return _sheets;
 }
