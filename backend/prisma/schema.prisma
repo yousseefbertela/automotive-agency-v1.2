@@ -17,6 +17,7 @@ enum QuoteStatus {
 enum Channel {
   TELEGRAM
   WHATSAPP
+  FRONTEND
 }
 
 enum IntegrationService {
@@ -46,10 +47,12 @@ model Tenant {
   odoo_username String?
   odoo_password String?
 
-  users          User[]
-  sessions       Session[]
-  inboundEvents  InboundEvent[]
-  integrationLog IntegrationCall[]
+  users               User[]
+  sessions            Session[]
+  inboundEvents       InboundEvent[]
+  integrationLog      IntegrationCall[]
+  sessionLinks        SessionLink[]
+  pendingNotifications PendingNotification[]
 }
 
 model User {
@@ -66,16 +69,26 @@ model User {
 }
 
 model Session {
-  chat_id       String   @id
-  tenant_id     String
-  user_id       String
-  vin           String?
-  vehicle_info  Json?
-  quotation_id  Int?
-  basket        Json?
-  history       Json?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  chat_id         String   @id
+  tenant_id       String
+  user_id         String
+  vin             String?
+  vehicle_info    Json?
+  quotation_id    Int?
+  basket          Json?
+  history         Json?
+  customer_name   String?
+  customer_phone  String?
+
+  // State machine fields
+  pending_action  String?   // CONFIRM_PART_MATCH | CONFIRM_KIT | AWAIT_KIT_CLARIFICATION | COLLECT_CUSTOMER_DATA | CONFIRM_VIN_CHANGE | ADD_MORE_ITEMS | AWAIT_NEXT_PART_NAME | CHOOSE_PRODUCT
+  pending_payload Json?     // serialized payload for resume
+  expires_at      DateTime? // TTL for pending state (null = no expiry)
+  last_step       String?   // last executed step name (debugging)
+  channel         String?   // "frontend_agent" | "whatsapp_customer"
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenant_id], references: [id])
   user   User   @relation(fields: [user_id], references: [id])
@@ -197,3 +210,30 @@ model IntegrationCall {
   @@index([tenant_id, created_at])
 }
 
+// Links an agent Frontend session to a tenant (for SSE push routing)
+model SessionLink {
+  id               String   @id @default(cuid())
+  tenant_id        String
+  agent_session_id String   // Frontend session UUID
+  last_seen        DateTime @default(now())
+  created_at       DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id, last_seen])
+  @@index([agent_session_id])
+}
+
+// Fallback notifications when no SSE connection is active
+model PendingNotification {
+  id         String   @id @default(cuid())
+  tenant_id  String
+  event_type String   // order_confirmed | order_cancelled | notification
+  data       Json
+  delivered  Boolean  @default(false)
+  created_at DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id, delivered, created_at])
+}

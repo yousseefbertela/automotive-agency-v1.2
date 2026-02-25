@@ -4,30 +4,15 @@ const scraper = require('../integrations/scraper.client');
 const odoo = require('../services/odoo.service');
 const quotesRepo = require('../db/quotes.repo');
 const stateRepo = require('../db/state.repo');
-const telegram = require('../services/telegram.service');
 const { normalizeVin } = require('../workflows/router');
+const { setPendingAction, PENDING_ACTIONS } = require('../services/stateMachine');
 const logger = require('../utils/logger');
 
-/**
- * VIN flow — replicated from the n8n VIN branch.
- *
- * Steps:
- * 1. Normalize VIN (last 7 chars if 17)
- * 2. Call scraper get-car-details
- * 3. Search Odoo x_car by chassis
- * 4. If car exists: check if customer exists → check if quotation exists
- * 5. If car doesn't exist: create car → open customer form (simplified: create with defaults)
- * 6. Create quotation in Odoo (sale.order)
- * 7. Create quotation in Firestore
- * 8. Update session state
- * 9. Reply to Telegram with vehicle summary
- */
 async function handleVin(chatId, item, state, correlationId, sender) {
   const log = logger.child(correlationId);
-  const s = sender || { sendMessage: (t) => telegram.sendMessage(chatId, t), sendPhotoBuffer: (b, c) => telegram.sendPhotoBuffer(chatId, b, c) };
+  const s = sender || { sendMessage: () => Promise.resolve(), sendPhotoBuffer: () => Promise.resolve() };
   const rawVin = item.vin;
   const vin = normalizeVin(rawVin) || rawVin;
-
   log.info('vin.flow: start', { chatId, rawVin, normalizedVin: vin });
 
   if (!vin) {
@@ -35,152 +20,146 @@ async function handleVin(chatId, item, state, correlationId, sender) {
     return;
   }
 
-  // Step 1: Call scraper for car details
+  // Check VIN collision: existing OPEN quote with a DIFFERENT vin
+  let existingQuote = null;
+  try { existingQuote = await quotesRepo.getLatestOpenQuote(chatId, correlationId); } catch {}
+
+  if (existingQuote && existingQuote.vin && existingQuote.vin !== vin) {
+    log.info('vin.flow: VIN collision', { old: existingQuote.vin, new: vin });
+    let newCarDetails = null;
+    try {
+      const d = await scraper.getCarDetails(vin, correlationId);
+      if (d && !d.error && !(d.status >= 400)) newCarDetails = d;
+    } catch {}
+    await setPendingAction(chatId, PENDING_ACTIONS.CONFIRM_VIN_CHANGE, {
+      old_vin: existingQuote.vin,
+      new_vin: vin,
+      old_quote_id: existingQuote._id,
+      new_car_details: newCarDetails || { vin },
+      tenant_id: state.tenant_id,
+    }, 60, correlationId);
+    await s.sendMessage(
+      `الـ VIN الحالي هو: *${existingQuote.vin}*\n\nهل تريد تغييره إلى: *${vin}*؟\n\nرد بـ *نعم* للتغيير أو *لا* للاحتفاظ بالحالي.`
+    );
+    return;
+  }
+
+  if (existingQuote && existingQuote.vin === vin) {
+    await s.sendMessage(`يوجد عرض سعر مفتوح بالفعل للـ VIN: ${vin}. يمكنك إضافة قطع عليه.`);
+    return;
+  }
+
+  // Scrape car details
   let carDetails;
   try {
     carDetails = await scraper.getCarDetails(vin, correlationId);
   } catch (err) {
     log.error('vin.flow: scraper failed', { error: err.message });
-    await s.sendMessage('please enter a correct vin');
+    await s.sendMessage('من فضلك أدخل VIN صحيح.');
     return;
   }
-
-  // Validate scraper response
   if (!carDetails || carDetails.error || carDetails.status >= 400) {
-    log.warn('vin.flow: scraper returned error', { carDetails });
-    await s.sendMessage('please enter a correct vin');
+    await s.sendMessage('من فضلك أدخل VIN صحيح.');
     return;
   }
-
-  log.info('vin.flow: car details retrieved', {
-    series: carDetails.series,
-    model: carDetails.model,
-  });
+  log.info('vin.flow: car details ok', { series: carDetails.series, model: carDetails.model });
 
   const tenant = state.tenant_id ? await stateRepo.getTenant(state.tenant_id, correlationId) : null;
 
-  // Step 2: Search Odoo for existing car
-  let cars = [];
+  // Search/create car in Odoo
+  let carId = null, partnerId = null;
   try {
-    cars = await odoo.searchCar(vin, correlationId, tenant);
-  } catch (err) {
-    log.warn('vin.flow: Odoo searchCar failed, continuing', { error: err.message });
-  }
-
-  let carId = null;
-  let partnerId = null;
-  let existingCar = cars.length > 0 ? cars[0] : null;
-
-  if (existingCar) {
-    carId = existingCar.id;
-    partnerId = existingCar.x_studio_partner_id?.[0] || null;
-    log.info('vin.flow: existing car found in Odoo', { carId, partnerId });
-  } else {
-    // Create a new car in Odoo
-    log.info('vin.flow: creating new car in Odoo');
-    try {
-      const newCar = await odoo.createCar(
-        {
-          x_name: `BMW ${carDetails.series || ''}`,
-          x_studio_car_chasis: vin,
-          x_studio_car_year: carDetails.prod_month || '',
-          x_studio_specs: `body:${carDetails.body || ''}, model:${carDetails.model || ''}, market:${carDetails.market || ''}, engine:${carDetails.engine || ''}`,
-        },
-        correlationId,
-        tenant
-      );
-      carId = newCar.id;
-    } catch (err) {
-      log.warn('vin.flow: Odoo createCar failed, continuing', { error: err.message });
-      carId = null;
+    const cars = await odoo.searchCar(vin, correlationId, tenant);
+    if (cars && cars.length > 0) {
+      carId = cars[0].id;
+      partnerId = (cars[0].x_studio_partner_id || [])[0] || null;
+    } else {
+      const nc = await odoo.createCar({
+        x_name: `${carDetails.series || 'Car'} ${carDetails.model || ''}`.trim(),
+        x_studio_car_chasis: vin,
+        x_studio_car_year: carDetails.prod_month || '',
+        x_studio_specs: `body:${carDetails.body || ''},model:${carDetails.model || ''},engine:${carDetails.engine || ''}`,
+      }, correlationId, tenant);
+      if (nc && nc.id) carId = nc.id;
     }
-  }
+  } catch (err) { log.warn('vin.flow: Odoo car failed', { error: err.message }); }
 
-  // Step 3: Check if quotation already exists for this VIN + chat_id
-  let existingQuote = null;
-  try {
-    existingQuote = await quotesRepo.quoteExistsForVin(chatId, vin, correlationId);
-  } catch (err) {
-    log.warn('vin.flow: quote check failed', { error: err.message });
-  }
-
-  if (existingQuote) {
-    log.info('vin.flow: quotation already exists', { quoteId: existingQuote._id });
-    await s.sendMessage(
-      'فيه عرض سعر موجود فعلاً بالبيانات دي وحالته لسه مفتوحة.'
+  // Check if customer data already in session
+  const hasCustomerData = !!(state.customer_name && state.customer_phone);
+  if (!hasCustomerData) {
+    await setPendingAction(chatId, PENDING_ACTIONS.COLLECT_CUSTOMER_DATA, {
+      vin, car_id: carId, car_details: carDetails, partner_id: partnerId, tenant_id: state.tenant_id,
+    }, 60, correlationId);
+    await s.sendMessage(JSON.stringify({
+      type: 'form',
+      action: 'COLLECT_CUSTOMER_DATA',
+      message: `تم التعرف على السيارة: ${carDetails.series || ''} ${carDetails.model || ''}\nمن فضلك أدخل بيانات العميل:`,
+      fields: [
+        { name: 'customer_name', label: 'اسم العميل', type: 'text', required: true },
+        { name: 'customer_phone', label: 'رقم الهاتف', type: 'tel', required: true },
+      ],
+      submit_to: '/api/chat/submit-form',
+    }));
+  } else {
+    await _createQuotation(
+      chatId,
+      { vin, car_id: carId, car_details: carDetails, partner_id: partnerId, tenant_id: state.tenant_id },
+      state.customer_name, state.customer_phone, s, correlationId
     );
-    return;
   }
-
-  // Step 4: Create Odoo quotation (sale.order)
-  let quotationId = null;
-  try {
-    // Determine partner_id: from existing car's partner, or default
-    const saleOrderData = {
-      partner_id: partnerId || 3, // 3 is fallback from n8n
-      partner_invoice_id: 3,
-      partner_shipping_id: 3,
-    };
-    if (carId) saleOrderData.x_studio_car = carId;
-
-    const quotation = await odoo.createQuotation(saleOrderData, correlationId, tenant);
-    quotationId = quotation.id;
-    log.info('vin.flow: Odoo quotation created', { quotationId });
-  } catch (err) {
-    log.warn('vin.flow: Odoo createQuotation failed, continuing', { error: err.message });
-  }
-
-  // Step 5: Prepare updated state
-  const updatedState = {
-    ...state,
-    chat_id: String(chatId),
-    vin,
-    quotation_id: quotationId,
-    vehicle_details: carDetails,
-    x_car_id: carId,
-    status: 'open',
-  };
-
-  // Step 6: Create Firestore quotation document
-  try {
-    await quotesRepo.createQuote(
-      {
-        quotation_id: quotationId,
-        customer_name: updatedState.customer_name || null,
-        customer_phone: updatedState.customer_phone || null,
-        vin,
-        vehicle_details: carDetails,
-        x_car_id: carId,
-        chat_id: Number(chatId) || chatId,
-        status: 'open',
-      },
-      correlationId
-    );
-  } catch (err) {
-    log.warn('vin.flow: Firestore createQuote failed', { error: err.message });
-  }
-
-  // Step 7: Save session state
-  try {
-    await stateRepo.saveState(chatId, updatedState, correlationId);
-  } catch (err) {
-    log.warn('vin.flow: saveState failed', { error: err.message });
-  }
-
-  // Step 8: Reply to Telegram with vehicle summary
-  const replyText = [
-    `🧾 تم إنشاء عرض السعر رقم: ${quotationId || 'N/A'}`,
-    `VIN: ${vin}`,
-    `تفاصيل السيارة:`,
-    `🚗 الموديل: ${carDetails.series || ''} ${carDetails.model || ''}`,
-    `🚙 الهيكل: ${carDetails.body || ''}`,
-    `🌍 السوق: ${carDetails.market || ''}`,
-    `📅 سنة الإنتاج: ${carDetails.prod_month || ''}`,
-    `⚙️ المحرك: ${carDetails.engine || ''}`,
-  ].join('\n');
-
-  await s.sendMessage(replyText);
-  log.info('vin.flow: complete');
 }
 
-module.exports = { handleVin };
+/** Create Odoo quotation + DB quote when customer data is already known. */
+async function _createQuotation(chatId, payload, customerName, customerPhone, sender, correlationId) {
+  const log = logger.child(correlationId);
+  const { vin, car_id, car_details, partner_id, tenant_id } = payload;
+  const tenant = tenant_id ? await stateRepo.getTenant(tenant_id, correlationId) : null;
+
+  let partnerId = partner_id || 3;
+  try {
+    const contacts = await odoo.searchContact(customerPhone, correlationId, tenant);
+    if (contacts && contacts.length > 0) {
+      partnerId = contacts[0].id;
+    } else {
+      const nc = await odoo.createCustomer(customerName, customerPhone, correlationId, tenant);
+      if (nc && nc.id) partnerId = nc.id;
+    }
+    if (car_id && partnerId) {
+      await odoo.updateCarPartner(car_id, partnerId, correlationId, tenant).catch(() => {});
+    }
+  } catch (err) { log.warn('_createQuotation: contact failed', { error: err.message }); }
+
+  let quotationId = null;
+  try {
+    const sod = { partner_id: partnerId, partner_invoice_id: partnerId, partner_shipping_id: partnerId };
+    if (car_id) sod.x_studio_car = car_id;
+    const q = await odoo.createQuotation(sod, correlationId, tenant);
+    if (q && q.id) quotationId = q.id;
+  } catch (err) { log.warn('_createQuotation: Odoo quotation failed', { error: err.message }); }
+
+  try {
+    await quotesRepo.createQuote({
+      quotation_id: quotationId, customer_name: customerName, customer_phone: customerPhone,
+      vin, vehicle_details: car_details, x_car_id: car_id, chat_id: String(chatId), status: 'open',
+    }, correlationId);
+  } catch (err) { log.warn('_createQuotation: createQuote failed', { error: err.message }); }
+
+  try {
+    await stateRepo.saveState(chatId, {
+      vin, quotation_id: quotationId, vehicle_details: car_details, x_car_id: car_id,
+      customer_name: customerName, customer_phone: customerPhone, status: 'open',
+    }, correlationId);
+  } catch (err) { log.warn('_createQuotation: saveState failed', { error: err.message }); }
+
+  await sender.sendMessage([
+    `🧾 تم إنشاء عرض السعر رقم: ${quotationId || 'N/A'}`,
+    `VIN: ${vin}`,
+    `🚗 ${car_details?.series || ''} ${car_details?.model || ''}`,
+    `⚙️ ${car_details?.engine || ''}`,
+    '',
+    'الآن ابعت اسم القطعة اللي تحتاجها.',
+  ].join('\n'));
+  log.info('vin.flow: complete', { quotationId });
+}
+
+module.exports = { handleVin, _createQuotation };
