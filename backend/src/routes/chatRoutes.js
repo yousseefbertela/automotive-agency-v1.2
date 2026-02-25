@@ -95,13 +95,16 @@ router.get('/events', async (req, res) => {
     }
 
     // Ensure the session exists in DB (creates web session if needed)
-    const { session_id: chatId } = await sessionStore.getStateForWeb(sessionId, correlationId);
+    const { state, session_id: chatId } = await sessionStore.getStateForWeb(sessionId, correlationId);
     sessionId = chatId;
 
-    log.info('chatRoutes.events: SSE connect', { sessionId, tenantId });
+    // Auto-resolve tenantId from session state if not provided by client
+    const effectiveTenantId = tenantId || state?.tenant_id || null;
+
+    log.info('chatRoutes.events: SSE connect', { sessionId, effectiveTenantId });
 
     // SSE headers + registration
-    await subscribe(sessionId, tenantId, res, correlationId);
+    await subscribe(sessionId, effectiveTenantId, res, correlationId);
 
     // Keep the connection open — the close handler in subscribe() cleans up
   } catch (err) {
