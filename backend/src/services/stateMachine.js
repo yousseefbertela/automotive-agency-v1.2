@@ -104,8 +104,10 @@ function acceptsYes(text) {
   const t = text.trim();
   if (t.length > 25) return false;
   const lower = t.toLowerCase();
+  // Match the yes word at start, with optional trailing polite words / punctuation
+  // e.g. "نعم شكراً" "ok thanks" "يلا بينا" are all yes
   const yesPatterns = [
-    /^(yes|ok|okay|اوك|يلا|اه|نعم|ايوه|موافق|تمام|أيوه|آيوه|اوكي|ايوة|اِيوَه|ارسل|يرسل|ابعت|ابعث|اكمل|اعمل|بالظبط|صح|صحيح)$/i,
+    /^(yes|ok|okay|اوك|يلا|اه|نعم|ايوه|موافق|تمام|أيوه|آيوه|اوكي|ايوة|اِيوَه|ارسل|يرسل|ابعت|ابعث|اكمل|اعمل|بالظبط|صح|صحيح)(\s[\s\S]*)?$/i,
   ];
   return yesPatterns.some(p => p.test(lower));
 }

@@ -137,14 +137,15 @@ router.post('/', async (req, res) => {
     const tenant = await stateRepo.getTenant(session.tenant_id, correlationId);
     const tenantName = tenant?.name || '';
 
-    const telegramChatId = session._id;
+    const agentChatId = session._id;
     const ctx = {
       recipientPhone,
       quote,
       basketItems: basketItems || [],
       tenant,
       tenantName,
-      chatId: telegramChatId,
+      chatId: agentChatId,
+      tenantId: session.tenant_id,   // used by SSE pushToTenant
       correlationId,
     };
 
