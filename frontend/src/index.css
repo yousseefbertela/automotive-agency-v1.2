@@ -1,0 +1,390 @@
+@import "tailwindcss";
+
+@theme {
+  --color-carbg: #070a0f;
+  --color-carcard: #0f1419;
+  --color-caraccent: #38bdf8;
+  --color-cargold: #d4a853;
+  --color-caramber: #f59e0b;
+  --color-carmuted: #64748b;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ========== NIGHT MODE — dark & lively ========== */
+.luxury-app {
+  position: relative;
+  isolation: isolate;
+}
+
+.luxury-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: linear-gradient(180deg, #05070a 0%, #0a0e14 25%, #0c1117 50%, #070b10 75%, #030508 100%);
+}
+
+.luxury-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(56, 189, 248, 0.07) 0%, transparent 45%),
+    radial-gradient(ellipse 80% 50% at 80% 50%, rgba(212, 168, 83, 0.05) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 20% 80%, rgba(34, 211, 238, 0.04) 0%, transparent 40%);
+  pointer-events: none;
+}
+
+.luxury-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+.luxury-watermark {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 80' fill='none' stroke='%2338bdf8' stroke-width='0.4'%3E%3Cpath d='M20 60 L40 20 L60 40 L80 25 L100 45 L120 30 L140 50 L160 35 L180 55'/%3E%3Ccircle cx='100' cy='40' r='15'/%3E%3C/svg%3E");
+  background-size: 280px 120px;
+  background-repeat: repeat;
+  background-position: 50% 50%;
+}
+
+/* ========== Brand moving bar (logos from chat) ========== */
+.brand-logos-wrap {
+  overflow: hidden;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.08);
+  background: rgba(5, 7, 10, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.brand-logos-track {
+  display: flex;
+  align-items: center;
+  gap: 2.5rem;
+  width: max-content;
+  animation: brandScroll 26s linear infinite;
+}
+
+.brand-logos-track:hover {
+  animation-play-state: paused;
+}
+
+.brand-logo-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.brand-logo-item:hover {
+  transform: scale(1.08);
+}
+
+.brand-logo-img {
+  height: 44px;
+  width: auto;
+  max-width: 80px;
+  object-fit: contain;
+  opacity: 0.9;
+}
+
+.theme-light .brand-logo-img {
+  opacity: 0.95;
+}
+
+@keyframes brandScroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-25%); }
+}
+
+/* ========== Header ========== */
+.luxury-header {
+  border-bottom: 1px solid rgba(56, 189, 248, 0.1);
+  background: rgba(7, 10, 15, 0.8);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 1px 0 rgba(56, 189, 248, 0.06), 0 1px 0 rgba(212, 168, 83, 0.04);
+}
+
+/* ========== Chat container ========== */
+.luxury-chat-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 1rem;
+}
+
+/* ========== Message bubbles — lively ========== */
+.message-bubble-wrap {
+  animation: messageIn 0.3s ease-out;
+}
+
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.luxury-bubble-user {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.25) 0%, rgba(34, 211, 238, 0.2) 50%, rgba(56, 189, 248, 0.15) 100%);
+  color: #e2e8f0;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(56, 189, 248, 0.1);
+}
+
+.luxury-bubble-assistant {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%);
+  color: #cbd5e1;
+  border: 1px solid rgba(71, 85, 105, 0.4);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* ========== Empty state ========== */
+.luxury-empty {
+  color: #64748b;
+}
+
+.bmw-logo-center svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.bmw-logo-center img {
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.35));
+}
+
+/* ========== Status bar — pulse when connected ========== */
+.status-bar {
+  border-top: 1px solid rgba(56, 189, 248, 0.1);
+  background: rgba(7, 10, 15, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.status-bar .bg-emerald-500 {
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.55), 0 0 0 1px rgba(212, 168, 83, 0.1);
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ========== Input area — night glow ========== */
+.luxury-input-area {
+  border-top: 1px solid rgba(56, 189, 248, 0.12);
+  background: rgba(7, 10, 15, 0.7);
+  backdrop-filter: blur(10px);
+}
+
+.luxury-input {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(71, 85, 105, 0.4);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.luxury-input:focus {
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+}
+
+/* ========== Buttons — cyan/sky accent ========== */
+.luxury-btn-send {
+  background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 40%, #0284c7 100%);
+  color: #0f172a;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  box-shadow: 0 2px 12px rgba(56, 189, 248, 0.35), 0 0 0 0 rgba(212, 168, 83, 0.1);
+  transition: box-shadow 0.25s ease, filter 0.25s ease, transform 0.2s ease;
+}
+
+.luxury-btn-send:hover:not(:disabled) {
+  box-shadow: 0 4px 20px rgba(56, 189, 248, 0.5), 0 0 20px rgba(212, 168, 83, 0.15);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.luxury-btn-upload {
+  background: rgba(30, 41, 59, 0.6);
+  color: #94a3b8;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.luxury-btn-upload:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+}
+
+/* ========== Panel (settings modal) ========== */
+.luxury-panel {
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+}
+
+/* ========== Toast ========== */
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-toast-in {
+  animation: toastIn 0.3s ease-out;
+}
+
+.luxury-toast {
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* ========== LIGHT MODE ========== */
+.theme-light {
+  color: #1e293b;
+}
+
+.theme-light .luxury-bg {
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 30%, #e2e8f0 60%, #cbd5e1 100%);
+}
+
+.theme-light .luxury-bg::before {
+  background: radial-gradient(ellipse 100% 60% at 50% 0%, rgba(56, 189, 248, 0.08) 0%, transparent 50%);
+}
+
+.theme-light .luxury-bg::after {
+  opacity: 0.02;
+}
+
+.theme-light .luxury-watermark {
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 80' fill='none' stroke='%230281c7' stroke-width='0.3'%3E%3Cpath d='M20 60 L40 20 L60 40 L80 25 L100 45 L120 30 L140 50 L160 35 L180 55'/%3E%3Ccircle cx='100' cy='40' r='15'/%3E%3C/svg%3E");
+}
+
+.theme-light .brand-logos-wrap {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.theme-light .brand-logo-img {
+  opacity: 0.95;
+}
+
+.theme-light .luxury-header {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+}
+
+.theme-light .luxury-bubble-user {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(14, 165, 233, 0.15) 100%);
+  color: #0f172a;
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.theme-light .luxury-bubble-assistant {
+  background: rgba(255, 255, 255, 0.95);
+  color: #334155;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.theme-light .luxury-empty {
+  color: #64748b;
+}
+
+.theme-light .status-bar {
+  border-top-color: rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.8);
+  color: #475569;
+}
+
+.theme-light .luxury-input-area {
+  border-top-color: rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.theme-light .luxury-input {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #1e293b;
+}
+
+.theme-light .luxury-input::placeholder {
+  color: #94a3b8;
+}
+
+.theme-light .luxury-input:focus {
+  border-color: rgba(14, 165, 233, 0.6);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+}
+
+.theme-light .luxury-btn-upload {
+  background: rgba(241, 245, 249, 0.9);
+  color: #475569;
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.theme-light .luxury-btn-upload:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.12);
+  color: #0284c7;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.theme-light .luxury-panel {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
+}
+
+.theme-light .luxury-toast {
+  border-color: rgba(14, 165, 233, 0.3);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+}
+
+.theme-light .theme-toggle {
+  background: rgba(241, 245, 249, 0.9);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #475569;
+}
+
+.theme-light .theme-toggle:hover {
+  color: #0284c7;
+  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.theme-light .luxury-bubble-user .text-slate-300 {
+  color: #475569;
+}
+
+.theme-light .luxury-bubble-assistant .text-slate-400 {
+  color: #64748b;
+}
