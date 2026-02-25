@@ -84,7 +84,7 @@ async function handlePart(chatId, item, state, correlationId, sender) {
   }
 
   const quote = await quotesRepo.getLatestOpenQuote(chatId, correlationId);
-  if (!quote) { await s.sendMessage('مفيش عرض سعر مفتوح. ابعت الـ VIN الأول.'); return; }
+  if (!quote) { await s.sendMessage('مفيش عرض سعر مفتوح.\nابعت الـ VIN.'); return; }
 
   const vin = quote.vin || state.vin;
   if (!vin) { await s.sendMessage('مفيش VIN محفوظ. ابعت الـ VIN الأول.'); return; }
