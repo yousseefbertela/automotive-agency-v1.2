@@ -42,3 +42,6 @@ build/
 tmp/
 temp/
 *.tmp
+
+# Claude Code internal worktrees (not project code)
+.claude/
