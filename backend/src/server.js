@@ -27,14 +27,12 @@ async function start() {
       const configured = [];
       const missing = [];
       const check = (name) => (process.env[name] ? configured.push(name) : missing.push(name));
-      check('TELEGRAM_BOT_TOKEN');
       check('OPENAI_API_KEY');
       check('OCR_SPACE_API_KEY');
       check('SCRAPER_BASE_URL');
       check('WHATSAPP_ACCESS_TOKEN');
       check('META_WEBHOOK_VERIFY_TOKEN');
       check('DATABASE_URL');
-      check('ODOO_URL');
 
       logger.info('Configuration status', {
         configured: configured.map((c) => c.replace(/KEY|TOKEN|PASSWORD|SECRET/g, '***')),
@@ -44,12 +42,13 @@ async function start() {
         logger.warn(`Missing ${missing.length} env var(s) — some features will use fallbacks`);
       }
       logger.info('Available endpoints', {
-        telegram: 'POST /webhook/telegram',
         whatsapp: 'POST /webhooks/waba',
         health: 'GET /health',
         apiHealth: 'GET /api/health',
         chatMessage: 'POST /api/chat/message',
         chatPhoto: 'POST /api/chat/photo',
+        chatEvents: 'GET /api/chat/events',
+        submitForm: 'POST /api/chat/submit-form',
       });
       resolve(server);
     });

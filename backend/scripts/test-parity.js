@@ -139,11 +139,6 @@ async function scenarioHealth() {
     assert(res.status === 200 || res.status === 404, `Unexpected status ${res.status}`);
   });
 
-  await test('POST /webhook/telegram returns disabled', async () => {
-    const res = await request('POST', '/webhook/telegram', { update_id: 1 });
-    assert(res.status === 200, `Status ${res.status}`);
-    assert(res.body.status === 'disabled', `Expected disabled, got: ${JSON.stringify(res.body)}`);
-  });
 }
 
 // ─── Scenario: VIN flow ───────────────────────────────────────────────────

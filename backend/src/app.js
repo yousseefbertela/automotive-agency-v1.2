@@ -2,7 +2,6 @@
 
 const express = require('express');
 const logger = require('./utils/logger');
-const telegramRoutes = require('./routes/telegram');
 const wabaRoutes = require('./routes/waba');
 const healthRoutes = require('./routes/healthRoutes');
 const chatRoutes = require('./routes/chatRoutes');
@@ -91,9 +90,6 @@ app.get('/', (_req, res) => {
 // API (web frontend)
 app.use('/api/health', healthRoutes);
 app.use('/api/chat', chatRoutes);
-
-// Telegram webhook (disabled — agent channel migrated to Frontend + SSE)
-app.use('/webhook', telegramRoutes);
 
 // WhatsApp Business API webhook (customer channel only)
 app.use('/webhooks/waba', wabaRoutes);
