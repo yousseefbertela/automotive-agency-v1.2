@@ -7,6 +7,7 @@ const stateRepo = require('../db/state.repo');
 const { normalizeVin } = require('../workflows/router');
 const { setPendingAction, PENDING_ACTIONS } = require('../services/stateMachine');
 const logger = require('../utils/logger');
+const trace = require('../services/trace.service');
 
 async function handleVin(chatId, item, state, correlationId, sender) {
   const log = logger.child(correlationId);
@@ -28,7 +29,10 @@ async function handleVin(chatId, item, state, correlationId, sender) {
     log.info('vin.flow: VIN collision', { old: existingQuote.vin, new: vin });
     let newCarDetails = null;
     try {
-      const d = await scraper.getCarDetails(vin, correlationId);
+      const d = await trace.step('vin_scrape_collision', async () =>
+        scraper.getCarDetails(vin, correlationId),
+        { domain: 'scraper', input: { vin }, replaySafe: true }
+      );
       if (d && !d.error && !(d.status >= 400)) newCarDetails = d;
     } catch {}
     await setPendingAction(chatId, PENDING_ACTIONS.CONFIRM_VIN_CHANGE, {
@@ -52,7 +56,10 @@ async function handleVin(chatId, item, state, correlationId, sender) {
   // Scrape car details
   let carDetails;
   try {
-    carDetails = await scraper.getCarDetails(vin, correlationId);
+    carDetails = await trace.step('vin_scrape', async () =>
+      scraper.getCarDetails(vin, correlationId),
+      { domain: 'scraper', input: { vin }, replaySafe: true }
+    );
   } catch (err) {
     log.error('vin.flow: scraper failed', { error: err.message });
     await s.sendMessage('من فضلك أدخل VIN صحيح.');
@@ -69,19 +76,21 @@ async function handleVin(chatId, item, state, correlationId, sender) {
   // Search/create car in Odoo
   let carId = null, partnerId = null;
   try {
-    const cars = await odoo.searchCar(vin, correlationId, tenant);
-    if (cars && cars.length > 0) {
-      carId = cars[0].id;
-      partnerId = (cars[0].x_studio_partner_id || [])[0] || null;
-    } else {
-      const nc = await odoo.createCar({
-        x_name: `${carDetails.series || 'Car'} ${carDetails.model || ''}`.trim(),
-        x_studio_car_chasis: vin,
-        x_studio_car_year: carDetails.prod_month || '',
-        x_studio_specs: `body:${carDetails.body || ''},model:${carDetails.model || ''},engine:${carDetails.engine || ''}`,
-      }, correlationId, tenant);
-      if (nc && nc.id) carId = nc.id;
-    }
+    await trace.step('vin_odoo_car_lookup', async () => {
+      const cars = await odoo.searchCar(vin, correlationId, tenant);
+      if (cars && cars.length > 0) {
+        carId = cars[0].id;
+        partnerId = (cars[0].x_studio_partner_id || [])[0] || null;
+      } else {
+        const nc = await odoo.createCar({
+          x_name: `${carDetails.series || 'Car'} ${carDetails.model || ''}`.trim(),
+          x_studio_car_chasis: vin,
+          x_studio_car_year: carDetails.prod_month || '',
+          x_studio_specs: `body:${carDetails.body || ''},model:${carDetails.model || ''},engine:${carDetails.engine || ''}`,
+        }, correlationId, tenant);
+        if (nc && nc.id) carId = nc.id;
+      }
+    }, { domain: 'odoo', input: { vin }, replaySafe: false });
   } catch (err) { log.warn('vin.flow: Odoo car failed', { error: err.message }); }
 
   // Check if customer data already in session
@@ -117,24 +126,28 @@ async function _createQuotation(chatId, payload, customerName, customerPhone, se
 
   let partnerId = partner_id || 3;
   try {
-    const contacts = await odoo.searchContact(customerPhone, correlationId, tenant);
-    if (contacts && contacts.length > 0) {
-      partnerId = contacts[0].id;
-    } else {
-      const nc = await odoo.createCustomer(customerName, customerPhone, correlationId, tenant);
-      if (nc && nc.id) partnerId = nc.id;
-    }
-    if (car_id && partnerId) {
-      await odoo.updateCarPartner(car_id, partnerId, correlationId, tenant).catch(() => {});
-    }
+    await trace.step('vin_odoo_contact_lookup', async () => {
+      const contacts = await odoo.searchContact(customerPhone, correlationId, tenant);
+      if (contacts && contacts.length > 0) {
+        partnerId = contacts[0].id;
+      } else {
+        const nc = await odoo.createCustomer(customerName, customerPhone, correlationId, tenant);
+        if (nc && nc.id) partnerId = nc.id;
+      }
+      if (car_id && partnerId) {
+        await odoo.updateCarPartner(car_id, partnerId, correlationId, tenant).catch(() => {});
+      }
+    }, { domain: 'odoo', input: { phone_suffix: customerPhone?.slice(-4), chatId }, replaySafe: false });
   } catch (err) { log.warn('_createQuotation: contact failed', { error: err.message }); }
 
   let quotationId = null;
   try {
-    const sod = { partner_id: partnerId, partner_invoice_id: partnerId, partner_shipping_id: partnerId };
-    if (car_id) sod.x_studio_car = car_id;
-    const q = await odoo.createQuotation(sod, correlationId, tenant);
-    if (q && q.id) quotationId = q.id;
+    await trace.step('vin_odoo_create_quotation', async () => {
+      const sod = { partner_id: partnerId, partner_invoice_id: partnerId, partner_shipping_id: partnerId };
+      if (car_id) sod.x_studio_car = car_id;
+      const q = await odoo.createQuotation(sod, correlationId, tenant);
+      if (q && q.id) quotationId = q.id;
+    }, { domain: 'odoo', input: { vin, chatId }, replaySafe: false });
   } catch (err) { log.warn('_createQuotation: Odoo quotation failed', { error: err.message }); }
 
   try {

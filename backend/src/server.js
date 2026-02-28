@@ -9,6 +9,7 @@ if (process.env.DATABASE_URL_PUBLIC) {
 
 const logger = require('./utils/logger');
 const { ensureWebUser } = require('./ensureWebUser');
+const { cleanupOldTraces } = require('./services/trace.service');
 
 const PORT = parseInt(process.env.PORT, 10) || 4000;
 
@@ -49,7 +50,13 @@ async function start() {
         chatPhoto: 'POST /api/chat/photo',
         chatEvents: 'GET /api/chat/events',
         submitForm: 'POST /api/chat/submit-form',
+        debugRuns: 'GET /api/debug/trace/runs',
+        debugRun: 'GET /api/debug/trace/run/:id',
       });
+
+      // Retention cleanup — prune old traces asynchronously on startup
+      cleanupOldTraces().catch(() => {});
+
       resolve(server);
     });
   });

@@ -5,23 +5,26 @@ const { AGENT_SYSTEM_PROMPT, PART_CATEGORIZATION_PROMPT, EVALUATE_RESULTS_PROMPT
 const { parseFirstJson } = require('./parseFirstJson');
 const logger = require('../utils/logger');
 const integrationLog = require('../services/integrationLog.service');
+const trace = require('../services/trace.service');
 
 async function withOpenAILog(operation, fn, correlationId) {
   const start = Date.now();
-  try {
-    const result = await fn();
-    integrationLog.logCall(
-      { service: 'OPENAI', operation, status: 'SUCCESS', duration_ms: Date.now() - start },
-      correlationId
-    ).catch(() => {});
-    return result;
-  } catch (err) {
-    integrationLog.logCall(
-      { service: 'OPENAI', operation, status: 'ERROR', duration_ms: Date.now() - start, response_meta: { error: err.message } },
-      correlationId
-    ).catch(() => {});
-    throw err;
-  }
+  return trace.step(`ai_openai_${operation}`, async () => {
+    try {
+      const result = await fn();
+      integrationLog.logCall(
+        { service: 'OPENAI', operation, status: 'SUCCESS', duration_ms: Date.now() - start },
+        correlationId
+      ).catch(() => {});
+      return result;
+    } catch (err) {
+      integrationLog.logCall(
+        { service: 'OPENAI', operation, status: 'ERROR', duration_ms: Date.now() - start, response_meta: { error: err.message } },
+        correlationId
+      ).catch(() => {});
+      throw err;
+    }
+  }, { domain: 'ai', input: { operation }, replaySafe: true });
 }
 
 let _openai = null;

@@ -8,6 +8,7 @@ const stateRepo = require('../db/state.repo');
 const ai = require('../ai/agent');
 const { setPendingAction, PENDING_ACTIONS } = require('../services/stateMachine');
 const logger = require('../utils/logger');
+const trace = require('../services/trace.service');
 
 /* ─── Scoring helpers (unchanged from original) ──────────────────────────── */
 
@@ -104,21 +105,35 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
   const s = sender || { sendMessage: () => Promise.resolve(), sendPhotoBuffer: () => Promise.resolve() };
   log.info('part.flow.processOnePart', { partName, remainingParts });
 
+  // second_match declared at outer scope so it's accessible by setPendingAction below
+  let second_match = null;
+
   // Step 1: Hot Items
-  const hotItem = await sheets.lookupHotItem(partName, correlationId).catch(() => null);
+  const hotItem = await trace.step('part_hot_lookup', async () =>
+    sheets.lookupHotItem(partName, correlationId),
+    { domain: 'sheets', input: { partName }, replaySafe: true }
+  ).catch(() => null);
+
   let chosenPart = null;
 
   if (hotItem && hotItem['Item Desc']) {
     try {
       const groupName = await ai.resolvePartGroup(partName, correlationId);
-      const res = await scraper.findPart(vin, partName, correlationId, groupName);
+      const res = await trace.step('part_hot_scrape', async () =>
+        scraper.findPart(vin, partName, correlationId, groupName),
+        { domain: 'scraper', input: { vin, partName, groupName }, replaySafe: true }
+      );
       if (res && res.part_number) chosenPart = res;
     } catch (err) { log.warn('part.flow: hot-item find-part failed', { error: err.message }); }
   }
 
   if (!chosenPart) {
     // Step 2: Alias map or LLM categorize
-    const aliasResult = await sheets.lookupAliasMap(partName, correlationId).catch(() => null);
+    const aliasResult = await trace.step('part_alias_lookup', async () =>
+      sheets.lookupAliasMap(partName, correlationId),
+      { domain: 'sheets', input: { partName }, replaySafe: true }
+    ).catch(() => null);
+
     let mainGroup = null, otherGroups = [], mainKeyword = partName;
 
     if (aliasResult && aliasResult['Main Group']) {
@@ -126,7 +141,10 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
       mainKeyword = aliasResult['Main Keyword'] || partName;
       otherGroups = (aliasResult['Other Main Groups'] || '').split(',').map(s => s.trim()).filter(Boolean);
     } else {
-      const cat = await ai.categorizePart(partName, correlationId);
+      const cat = await trace.step('part_ai_categorize', async () =>
+        ai.categorizePart(partName, correlationId),
+        { domain: 'ai', input: { partName }, replaySafe: true }
+      );
       mainGroup = cat.main_group || 'UNKNOWN';
       otherGroups = cat.other_groups || [];
       mainKeyword = cat.technical_name || partName;
@@ -136,55 +154,65 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
     let allSubgroups = [];
     const typeCode = quote.vehicle_details?.type_code || '';
 
-    for (const group of allGroups) {
-      let cachedResults = [];
-      try { cachedResults = await catalogRepo.queryCatalogResults(group, typeCode, correlationId); } catch {}
+    await trace.step('part_scrape', async () => {
+      for (const group of allGroups) {
+        let cachedResults = [];
+        try { cachedResults = await catalogRepo.queryCatalogResults(group, typeCode, correlationId); } catch {}
 
-      if (cachedResults.length > 0) {
-        for (const c of cachedResults) { if (c.subgroups) allSubgroups.push(...c.subgroups); }
-      } else {
-        try {
-          const subgroupsList = await scraper.getSubgroups(vin, group, correlationId);
-          const subgroupNames = subgroupsList?.subgroups || [];
-          const collected = [];
-          for (const sgName of Array.isArray(subgroupNames) ? subgroupNames : []) {
-            const sgId = typeof sgName === 'string' ? sgName : (sgName?.name ?? sgName?.subgroup ?? String(sgName));
-            try {
-              const sgData = await scraper.querySubgroup(vin, group, sgId, correlationId);
-              if (sgData) collected.push(sgData);
-            } catch {}
-          }
-          if (!collected.length) {
-            try {
-              const gData = await scraper.queryGroup(vin, group, correlationId);
-              if (gData?.subgroups?.length) collected.push(...gData.subgroups);
-            } catch {}
-          }
-          if (collected.length) {
-            allSubgroups.push(...collected);
-            await catalogRepo.saveCatalogResult({
-              type_code: typeCode, series: quote.vehicle_details?.series || null,
-              model: quote.vehicle_details?.model || null, engine: quote.vehicle_details?.engine || null,
-              group_name: group,
-              subgroups: collected.map(sg => ({
-                subgroup: sg.subgroup ?? null, diagram_image: sg.diagram_image ?? null,
-                parts: Array.isArray(sg.parts) ? sg.parts.map(p => ({
-                  item_no: p.item_no || null, description: p.description || null,
-                  part_number: p.part_number || null, price: p.price || null,
-                })) : [],
-              })),
-            }, correlationId).catch(() => {});
-          }
-        } catch (err) { log.warn('part.flow: scraper failed', { group, error: err.message }); }
+        if (cachedResults.length > 0) {
+          for (const c of cachedResults) { if (c.subgroups) allSubgroups.push(...c.subgroups); }
+        } else {
+          try {
+            const subgroupsList = await scraper.getSubgroups(vin, group, correlationId);
+            const subgroupNames = subgroupsList?.subgroups || [];
+            const collected = [];
+            for (const sgName of Array.isArray(subgroupNames) ? subgroupNames : []) {
+              const sgId = typeof sgName === 'string' ? sgName : (sgName?.name ?? sgName?.subgroup ?? String(sgName));
+              try {
+                const sgData = await scraper.querySubgroup(vin, group, sgId, correlationId);
+                if (sgData) collected.push(sgData);
+              } catch {}
+            }
+            if (!collected.length) {
+              try {
+                const gData = await scraper.queryGroup(vin, group, correlationId);
+                if (gData?.subgroups?.length) collected.push(...gData.subgroups);
+              } catch {}
+            }
+            if (collected.length) {
+              allSubgroups.push(...collected);
+              await catalogRepo.saveCatalogResult({
+                type_code: typeCode, series: quote.vehicle_details?.series || null,
+                model: quote.vehicle_details?.model || null, engine: quote.vehicle_details?.engine || null,
+                group_name: group,
+                subgroups: collected.map(sg => ({
+                  subgroup: sg.subgroup ?? null, diagram_image: sg.diagram_image ?? null,
+                  parts: Array.isArray(sg.parts) ? sg.parts.map(p => ({
+                    item_no: p.item_no || null, description: p.description || null,
+                    part_number: p.part_number || null, price: p.price || null,
+                  })) : [],
+                })),
+              }, correlationId).catch(() => {});
+            }
+          } catch (err) { log.warn('part.flow: scraper failed', { group, error: err.message }); }
+        }
       }
-    }
+      return { subgroupCount: allSubgroups.length, groupCount: allGroups.length };
+    }, { domain: 'scraper', input: { vin, groups: allGroups, typeCode }, replaySafe: true });
 
     if (!allSubgroups.length) {
       await s.sendMessage(`مش لاقي نتايج للقطعة "${partName}". جرب اسم تاني.`);
       return;
     }
 
-    const { best_match, second_match } = scoreParts(mainKeyword, allSubgroups);
+    // Destructure second_match from part_score step result (assigned to outer-scope variable)
+    const scoreResult = await trace.step('part_score', async () =>
+      scoreParts(mainKeyword, allSubgroups),
+      { domain: 'general', input: { mainKeyword, subgroupCount: allSubgroups.length }, replaySafe: true }
+    );
+    const { best_match } = scoreResult;
+    second_match = scoreResult.second_match;
+
     if (!best_match || best_match.score === 0) {
       await s.sendMessage(`مش لاقي نتايج للقطعة "${partName}". جرب اسم تاني.`);
       return;
@@ -194,7 +222,10 @@ async function processOnePart(chatId, partName, vin, quote, state, correlationId
     if (earlyExit) {
       chosenPart = best_match;
     } else {
-      const evaluated = await ai.evaluateScraperResults(mainKeyword, best_match, second_match, correlationId);
+      const evaluated = await trace.step('part_ai_evaluate', async () =>
+        ai.evaluateScraperResults(mainKeyword, best_match, second_match, correlationId),
+        { domain: 'ai', input: { mainKeyword, bestScore: best_match.score, secondScore: second_match?.score }, replaySafe: true }
+      );
       chosenPart = (evaluated && evaluated.part_number) ? evaluated : best_match;
     }
   }

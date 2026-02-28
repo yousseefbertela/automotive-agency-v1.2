@@ -237,3 +237,47 @@ model PendingNotification {
 
   @@index([tenant_id, delivered, created_at])
 }
+
+// ── Execution Tracer ──────────────────────────────────────────────────────────
+
+// One TraceRun per incoming message processed through processUserMessage.
+// status: RUNNING | SUCCESS | ERROR
+model TraceRun {
+  id             String      @id @default(cuid())
+  session_id     String
+  chat_id        String
+  tenant_id      String?
+  correlation_id String      @unique
+  started_at     DateTime    @default(now())
+  ended_at       DateTime?
+  status         String      @default("RUNNING")
+
+  events TraceEvent[]
+
+  @@index([session_id, started_at])
+  @@index([chat_id, started_at])
+  @@index([started_at])
+}
+
+// One TraceEvent per named step within a TraceRun.
+// status: success | error
+// replay_safe: true = can be replayed without real-world side effects (AI, Sheets, DB)
+//              false = contacts WhatsApp / Odoo (real customers/ERP)
+model TraceEvent {
+  id           String   @id @default(cuid())
+  trace_run_id String
+  sequence     Int
+  step_name    String
+  domain       String   @default("general")
+  timestamp    DateTime @default(now())
+  duration_ms  Int?
+  status       String   @default("success")
+  replay_safe  Boolean  @default(false)
+  input_json   Json?
+  output_json  Json?
+  error_json   Json?
+
+  run TraceRun @relation(fields: [trace_run_id], references: [id], onDelete: Cascade)
+
+  @@index([trace_run_id, sequence])
+}

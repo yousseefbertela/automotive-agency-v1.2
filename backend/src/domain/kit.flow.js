@@ -5,6 +5,7 @@ const ai = require('../ai/agent');
 const quotesRepo = require('../db/quotes.repo');
 const { setPendingAction, PENDING_ACTIONS } = require('../services/stateMachine');
 const logger = require('../utils/logger');
+const trace = require('../services/trace.service');
 
 /**
  * Kit flow — sets CONFIRM_KIT wait state instead of auto-proceeding.
@@ -24,7 +25,12 @@ async function handleKit(chatId, item, state, correlationId, sender) {
   const quote = await quotesRepo.getLatestOpenQuote(chatId, correlationId).catch(() => null);
 
   let kits = [];
-  try { kits = await sheets.getAllKits(correlationId); } catch (err) {
+  try {
+    kits = await trace.step('kit_sheets_load', async () =>
+      sheets.getAllKits(correlationId),
+      { domain: 'sheets', input: {}, replaySafe: true }
+    );
+  } catch (err) {
     log.error('kit.flow: kits sheet failed', { error: err.message });
     await s.sendMessage('حصل مشكلة في تحميل بيانات الطقم. حاول تاني.');
     return;
@@ -35,7 +41,10 @@ async function handleKit(chatId, item, state, correlationId, sender) {
     return;
   }
 
-  const matchResult = await ai.matchKit(kitText, kits, correlationId);
+  const matchResult = await trace.step('kit_ai_match', async () =>
+    ai.matchKit(kitText, kits, correlationId),
+    { domain: 'ai', input: { kitText, kitCount: kits.length }, replaySafe: true }
+  );
 
   if (!matchResult.matched) {
     log.info('kit.flow: no match, setting AWAIT_KIT_CLARIFICATION');

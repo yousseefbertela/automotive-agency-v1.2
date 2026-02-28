@@ -26,7 +26,7 @@ const Logo = ({ dark }) => (
 
 import ThemeToggle from './ThemeToggle';
 
-export default function ChatHeader({ theme, onThemeToggle }) {
+export default function ChatHeader({ theme, onThemeToggle, onDebugToggle, debugOpen }) {
   const isDark = theme === 'dark';
   return (
     <header className="luxury-header flex items-center justify-between gap-4 px-6 py-4">
@@ -37,7 +37,26 @@ export default function ChatHeader({ theme, onThemeToggle }) {
           <p className="text-xs text-sky-500 tracking-wide">Luxury Parts Assistant</p>
         </div>
       </div>
-      <ThemeToggle theme={theme} onToggle={onThemeToggle} />
+      <div className="flex items-center gap-3">
+        {/* Examine Backend toggle */}
+        <button
+          type="button"
+          onClick={onDebugToggle}
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+            debugOpen
+              ? 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+              : 'text-slate-400 hover:text-sky-400 border-slate-700 hover:border-sky-500/30'
+          }`}
+          title="Toggle backend trace inspector"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          Examine Backend
+        </button>
+        <ThemeToggle theme={theme} onToggle={onThemeToggle} />
+      </div>
     </header>
   );
 }

@@ -2,6 +2,7 @@
 
 const { google } = require('googleapis');
 const logger = require('../utils/logger');
+const trace = require('../services/trace.service');
 
 let _sheets = null;
 
@@ -47,33 +48,175 @@ async function getSheetsClient() {
   return _sheets;
 }
 
+// ── Public CSV fallback ───────────────────────────────────────────────────────
+// For sheets shared "Anyone with the link can view".
+// Uses Node 18+ native fetch — no extra packages needed.
+
+/**
+ * Parse a CSV string into an array of header-keyed objects.
+ * Handles quoted fields, escaped quotes (""), and CRLF/LF line endings.
+ */
+function _parseCsv(text) {
+  // Strip UTF-8 BOM if present
+  const cleaned = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+
+  // Tokenise: split on CRLF or LF, respecting quoted fields with embedded newlines
+  const rows = [];
+  let currentRow = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    const next = cleaned[i + 1];
+
+    if (inQuotes) {
+      if (ch === '"' && next === '"') {
+        // Escaped quote inside quoted field
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        currentRow.push(field);
+        field = '';
+      } else if (ch === '\r' && next === '\n') {
+        // Windows CRLF
+        currentRow.push(field);
+        rows.push(currentRow);
+        currentRow = [];
+        field = '';
+        i++; // skip \n
+      } else if (ch === '\n') {
+        currentRow.push(field);
+        rows.push(currentRow);
+        currentRow = [];
+        field = '';
+      } else {
+        field += ch;
+      }
+    }
+  }
+
+  // Push the last field/row
+  if (field || currentRow.length) {
+    currentRow.push(field);
+    if (currentRow.some(f => f !== '')) rows.push(currentRow);
+  }
+
+  if (rows.length < 2) return [];
+  const headers = rows[0];
+  return rows.slice(1).map((cols) => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = cols[i] ?? ''; });
+    return obj;
+  });
+}
+
+/**
+ * Fetch a publicly shared Google Sheet as CSV (no auth required).
+ * URL: https://docs.google.com/spreadsheets/d/{id}/gviz/tq?tqx=out:csv&sheet={name}
+ */
+async function _fetchPublicCsv(spreadsheetId, sheetName) {
+  const url =
+    `https://docs.google.com/spreadsheets/d/${spreadsheetId}` +
+    `/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'PartPilot/1.0' },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Public CSV fetch HTTP ${response.status} for sheet "${sheetName}" ` +
+      `(spreadsheetId=${spreadsheetId})`
+    );
+  }
+
+  const text = await response.text();
+  return _parseCsv(text);
+}
+
+// ── Core data accessor ────────────────────────────────────────────────────────
+
 /**
  * Read all rows from a sheet and return as array of objects.
  * First row is treated as header.
+ *
+ * Auth waterfall:
+ *   googleapis (service-account / API key / ADC)
+ *     → on auth failure: public CSV export (no credentials needed)
  */
 async function getAllRows(spreadsheetId, sheetName, correlationId) {
-  const log = logger.child(correlationId);
-  try {
-    const sheets = await getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: sheetName,
-    });
-    const rows = res.data.values;
-    if (!rows || rows.length < 2) return [];
-    const headers = rows[0];
-    return rows.slice(1).map((row) => {
-      const obj = {};
-      headers.forEach((h, i) => {
-        obj[h] = row[i] || '';
+  const log = logger.child ? logger.child(correlationId) : logger;
+
+  return trace.step('sheets_getAllRows', async () => {
+    // ── Attempt 1: googleapis (handles private + authenticated public sheets) ──
+    try {
+      const sheets = await getSheetsClient();
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: sheetName,
       });
-      return obj;
-    });
-  } catch (err) {
-    log.error('sheets.getAllRows failed', { spreadsheetId, error: err.message });
+      const rows = res.data.values;
+      if (!rows || rows.length < 2) return [];
+      const headers = rows[0];
+      return rows.slice(1).map((row) => {
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+        return obj;
+      });
+    } catch (apiErr) {
+      // Detect credential / auth failures and try the zero-config CSV fallback
+      const isAuthErr = /credentials|Could not load|unauthorized|401|invalid_grant|UNAUTHENTICATED/i
+        .test(apiErr.message || '');
+
+      if (isAuthErr) {
+        // Reset the cached client so the next call re-attempts auth properly
+        _sheets = null;
+        log.warn('sheets.getAllRows: API auth error — falling back to public CSV export', {
+          spreadsheetId,
+          sheetName,
+          error: apiErr.message,
+        });
+
+        // ── Attempt 2: public CSV export (works for "Anyone with link" sheets) ─
+        try {
+          const rows = await _fetchPublicCsv(spreadsheetId, sheetName);
+          log.info('sheets.getAllRows: public CSV fallback succeeded', {
+            spreadsheetId,
+            sheetName,
+            rowCount: rows.length,
+          });
+          return rows;
+        } catch (csvErr) {
+          log.error('sheets.getAllRows: public CSV fallback also failed', {
+            spreadsheetId,
+            sheetName,
+            error: csvErr.message,
+          });
+          return [];
+        }
+      }
+
+      // Non-auth error (network, quota, bad range, etc.)
+      log.error('sheets.getAllRows failed', { spreadsheetId, sheetName, error: apiErr.message });
+      return [];
+    }
+  }, { domain: 'sheets', input: { spreadsheetId, sheetName }, replaySafe: true }).catch((err) => {
+    log.error('sheets.getAllRows trace.step failed', { error: err.message });
     return [];
-  }
+  });
 }
+
+// ── Domain-level helpers ──────────────────────────────────────────────────────
 
 /**
  * Check Hot Items sheet — lookup by "Item Desc" column.

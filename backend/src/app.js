@@ -5,6 +5,7 @@ const logger = require('./utils/logger');
 const wabaRoutes = require('./routes/waba');
 const healthRoutes = require('./routes/healthRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const debugRoutes = require('./routes/debugRoutes');
 
 const app = express();
 
@@ -35,7 +36,7 @@ app.use((req, res, next) => {
   // Cache-Control and Last-Event-ID are required for SSE streams
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Cache-Control, Last-Event-ID'
+    'Content-Type, Cache-Control, Last-Event-ID, x-debug-api-key'
   );
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -90,6 +91,7 @@ app.get('/', (_req, res) => {
 // API (web frontend)
 app.use('/api/health', healthRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/debug', debugRoutes);
 
 // WhatsApp Business API webhook (customer channel only)
 app.use('/webhooks/waba', wabaRoutes);

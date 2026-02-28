@@ -4,6 +4,7 @@ const axios = require('axios');
 const { withRetry } = require('../utils/retry');
 const logger = require('../utils/logger');
 const integrationLog = require('./integrationLog.service');
+const trace = require('./trace.service');
 
 /**
  * Odoo JSON-RPC client.
@@ -58,44 +59,49 @@ async function authenticate(correlationId, odooConfig) {
   const c = cfg(odooConfig);
   const key = configKey(c);
   if (_uidByKey[key] != null) return _uidByKey[key];
-  if (!c.url) {
-    logger.child(correlationId).warn('Odoo not configured — returning mock uid=1');
-    _uidByKey[key] = 1;
-    return 1;
-  }
-  const uid = await jsonRpc(c.url, 'common', 'authenticate', [c.db, c.username, c.password, {}]);
-  if (!uid) throw new Error('Odoo authentication failed');
-  logger.child(correlationId).info('Odoo authenticated', { uid, key: key === 'env' ? 'env' : 'tenant' });
-  _uidByKey[key] = uid;
-  return uid;
+  // Only trace when making an actual network call (cache miss)
+  return trace.step('odoo_auth', async () => {
+    if (!c.url) {
+      logger.child(correlationId).warn('Odoo not configured — returning mock uid=1');
+      _uidByKey[key] = 1;
+      return 1;
+    }
+    const uid = await jsonRpc(c.url, 'common', 'authenticate', [c.db, c.username, c.password, {}]);
+    if (!uid) throw new Error('Odoo authentication failed');
+    logger.child(correlationId).info('Odoo authenticated', { uid, key: key === 'env' ? 'env' : 'tenant' });
+    _uidByKey[key] = uid;
+    return uid;
+  }, { domain: 'odoo', input: { key: key === 'env' ? 'env' : 'tenant' }, replaySafe: true });
 }
 
 async function execute(model, method, args, kwargs = {}, correlationId, odooConfig) {
-  const c = cfg(odooConfig);
-  const start = Date.now();
-  const operation = `${model}.${method}`;
-  if (!c.url) {
-    logger.child(correlationId).warn(`Odoo not configured — mock execute ${operation}`, { args });
-    return method === 'create' ? Math.floor(Math.random() * 100000) : [];
-  }
-  try {
-    const uid = await authenticate(correlationId, odooConfig);
-    const result = await withRetry(
-      () => jsonRpc(c.url, 'object', 'execute_kw', [c.db, uid, c.password, model, method, args, kwargs]),
-      { retries: 1, label: `odoo.${operation}`, correlationId }
-    );
-    integrationLog.logCall(
-      { service: 'ODOO', operation, status: 'SUCCESS', duration_ms: Date.now() - start },
-      correlationId
-    ).catch(() => {});
-    return result;
-  } catch (err) {
-    integrationLog.logCall(
-      { service: 'ODOO', operation, status: 'ERROR', duration_ms: Date.now() - start, response_meta: { error: err.message } },
-      correlationId
-    ).catch(() => {});
-    throw err;
-  }
+  return trace.step(`odoo_${model}_${method}`, async () => {
+    const c = cfg(odooConfig);
+    const start = Date.now();
+    const operation = `${model}.${method}`;
+    if (!c.url) {
+      logger.child(correlationId).warn(`Odoo not configured — mock execute ${operation}`, { args });
+      return method === 'create' ? Math.floor(Math.random() * 100000) : [];
+    }
+    try {
+      const uid = await authenticate(correlationId, odooConfig);
+      const result = await withRetry(
+        () => jsonRpc(c.url, 'object', 'execute_kw', [c.db, uid, c.password, model, method, args, kwargs]),
+        { retries: 1, label: `odoo.${operation}`, correlationId }
+      );
+      integrationLog.logCall(
+        { service: 'ODOO', operation, status: 'SUCCESS', duration_ms: Date.now() - start },
+        correlationId
+      ).catch(() => {});
+      return result;
+    } catch (err) {
+      integrationLog.logCall(
+        { service: 'ODOO', operation, status: 'ERROR', duration_ms: Date.now() - start, response_meta: { error: err.message } },
+        correlationId
+      ).catch(() => {});
+      throw err;
+    }
+  }, { domain: 'odoo', input: { model, method, argsLength: args?.length }, replaySafe: false });
 }
 
 async function searchCar(vin, correlationId, odooConfig) {

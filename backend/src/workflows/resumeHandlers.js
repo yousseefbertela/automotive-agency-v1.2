@@ -240,12 +240,13 @@ async function resumeAwaitKitClarification(chatId, payload, userMessage, state, 
       `لقيت الطقم "${matchResult.kit_code}".\nالقطع: ${partsText}\n\nهل دي القطع المطلوبة؟ (نعم / لا)`
     );
   } else {
-    // Keep waiting
-    await setPendingAction(chatId, PENDING_ACTIONS.AWAIT_KIT_CLARIFICATION, payload, 60, correlationId);
+    // No match found — send suggestions and release state.
+    // The user's next message will be processed fresh (no locked pending state).
     const suggestions = matchResult.suggestions?.join(', ') || '';
     const clarifyMsg = matchResult.clarify_message ||
-      `مش لاقي. ${suggestions ? `هل تقصد: ${suggestions}` : 'حاول اكتب اسم الطقم بشكل مختلف.'}`;
+      `مش لاقي الطقم. ${suggestions ? `هل تقصد: ${suggestions}?\n\nابعت اسم الطقم مرة تانية.` : 'حاول اكتب اسم الطقم بشكل مختلف.'}`;
     await sender.sendMessage(clarifyMsg);
+    // (intentionally no setPendingAction — user is free to send any next message)
   }
 }
 

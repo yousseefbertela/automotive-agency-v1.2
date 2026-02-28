@@ -2,6 +2,7 @@
 
 const { getPrisma } = require('./prisma.service');
 const logger = require('../utils/logger');
+const trace = require('./trace.service');
 
 /** All pending_action values */
 const PENDING_ACTIONS = {
@@ -23,48 +24,52 @@ const PENDING_ACTIONS = {
  * @param {number} ttlMinutes - 0 = no expiry
  */
 async function setPendingAction(chatId, action, payload, ttlMinutes = 60, correlationId) {
-  const log = logger.child(correlationId);
-  const prisma = getPrisma();
-  const expires_at = ttlMinutes > 0
-    ? new Date(Date.now() + ttlMinutes * 60 * 1000)
-    : null;
-  try {
-    await prisma.session.update({
-      where: { chat_id: String(chatId) },
-      data: {
-        pending_action: action,
-        pending_payload: payload,
-        expires_at,
-        last_step: action,
-        updated_at: new Date(),
-      },
-    });
-    log.info('stateMachine.setPendingAction', { chatId, action, expires_at });
-  } catch (err) {
-    log.warn('stateMachine.setPendingAction: failed to update session', { chatId, action, error: err.message });
-  }
+  return trace.step('state_set_pending', async () => {
+    const log = logger.child(correlationId);
+    const prisma = getPrisma();
+    const expires_at = ttlMinutes > 0
+      ? new Date(Date.now() + ttlMinutes * 60 * 1000)
+      : null;
+    try {
+      await prisma.session.update({
+        where: { chat_id: String(chatId) },
+        data: {
+          pending_action: action,
+          pending_payload: payload,
+          expires_at,
+          last_step: action,
+          updated_at: new Date(),
+        },
+      });
+      log.info('stateMachine.setPendingAction', { chatId, action, expires_at });
+    } catch (err) {
+      log.warn('stateMachine.setPendingAction: failed to update session', { chatId, action, error: err.message });
+    }
+  }, { domain: 'state', input: { chatId, action, ttlMinutes }, replaySafe: true }).catch(() => {});
 }
 
 /**
  * Clear the pending action from the session.
  */
 async function clearPendingAction(chatId, correlationId) {
-  const log = logger.child(correlationId);
-  const prisma = getPrisma();
-  try {
-    await prisma.session.update({
-      where: { chat_id: String(chatId) },
-      data: {
-        pending_action: null,
-        pending_payload: null,
-        expires_at: null,
-        updated_at: new Date(),
-      },
-    });
-    log.info('stateMachine.clearPendingAction', { chatId });
-  } catch (err) {
-    log.warn('stateMachine.clearPendingAction: failed', { chatId, error: err.message });
-  }
+  return trace.step('state_clear_pending', async () => {
+    const log = logger.child(correlationId);
+    const prisma = getPrisma();
+    try {
+      await prisma.session.update({
+        where: { chat_id: String(chatId) },
+        data: {
+          pending_action: null,
+          pending_payload: null,
+          expires_at: null,
+          updated_at: new Date(),
+        },
+      });
+      log.info('stateMachine.clearPendingAction', { chatId });
+    } catch (err) {
+      log.warn('stateMachine.clearPendingAction: failed', { chatId, error: err.message });
+    }
+  }, { domain: 'state', input: { chatId }, replaySafe: true }).catch(() => {});
 }
 
 /**

@@ -8,6 +8,7 @@ const whatsapp = require('../services/whatsapp.service');
 const { setPendingAction, clearPendingAction, PENDING_ACTIONS } = require('../services/stateMachine');
 const { pushToTenant } = require('../services/sseNotifications');
 const logger = require('../utils/logger');
+const trace = require('../services/trace.service');
 
 /**
  * Finalize flow — triggered when user says NO to "add more items".
@@ -38,7 +39,11 @@ async function handleFinalize(chatId, item, state, correlationId, sender) {
     return;
   }
 
-  const basketItems = await quotesRepo.getBasketItems(quote._id, correlationId);
+  const basketItems = await trace.step('finalize_basket_load', async () =>
+    quotesRepo.getBasketItems(quote._id, correlationId),
+    { domain: 'general', input: { quote_id: String(quote._id) }, replaySafe: true }
+  );
+
   if (!basketItems.length) {
     await s.sendMessage('السلة فاضية. ابعت اسم القطعة اللي عايزها.');
     return;
@@ -151,36 +156,45 @@ async function handleChooseProductSubmit(chatId, formData, payload, correlationI
   }
 
   const laborCost = parseFloat(formData.labor_cost) || 0;
-  let partsTotalCost = 0;
-  const chosenLines = [];
 
-  for (const meta of basket_meta) {
-    const chosenProductId = formData[`item_${meta.index}_product`];
-    const products = Array.isArray(meta.products) ? meta.products : [];
-    const chosenProduct =
-      products.find((p) => String(p.id) === String(chosenProductId)) ||
-      products[0] ||
-      null;
-    const price = Number(chosenProduct?.standard_price) || 0;
-    partsTotalCost += price;
+  // Process basket selections and update DB records
+  const { partsTotalCost, chosenLines, basketText } = await trace.step('finalize_choose_product', async () => {
+    let _partsTotalCost = 0;
+    const _chosenLines = [];
 
-    // Update basket item with chosen product
-    await quotesRepo.addToBasket(quote_id, {
-      part_number: meta.part_number,
-      products,
-      chosen_product_id: chosenProductId ? String(chosenProductId) : null,
-      total_cost: price,
-    }, correlationId).catch((err) => {
-      log.warn('finalize.flow: addToBasket update failed', { error: err.message });
-    });
+    for (const meta of basket_meta) {
+      const chosenProductId = formData[`item_${meta.index}_product`];
+      const products = Array.isArray(meta.products) ? meta.products : [];
+      const chosenProduct =
+        products.find((p) => String(p.id) === String(chosenProductId)) ||
+        products[0] ||
+        null;
+      const price = Number(chosenProduct?.standard_price) || 0;
+      _partsTotalCost += price;
 
-    chosenLines.push(
-      `${meta.part_number}: ${chosenProduct?.name || meta.part_number} | ${price} EGP`
-    );
-  }
+      // Update basket item with chosen product
+      await quotesRepo.addToBasket(quote_id, {
+        part_number: meta.part_number,
+        products,
+        chosen_product_id: chosenProductId ? String(chosenProductId) : null,
+        total_cost: price,
+      }, correlationId).catch((err) => {
+        log.warn('finalize.flow: addToBasket update failed', { error: err.message });
+      });
+
+      _chosenLines.push(
+        `${meta.part_number}: ${chosenProduct?.name || meta.part_number} | ${price} EGP`
+      );
+    }
+
+    return {
+      partsTotalCost: _partsTotalCost,
+      chosenLines: _chosenLines,
+      basketText: _chosenLines.join('\n'),
+    };
+  }, { domain: 'finalize', input: { quote_id, itemCount: basket_meta.length, laborCost }, replaySafe: false });
 
   const totalCost = partsTotalCost + laborCost;
-  const basketText = chosenLines.join('\n');
 
   const tenant = tenant_id
     ? await stateRepo.getTenant(tenant_id, correlationId).catch(() => null)

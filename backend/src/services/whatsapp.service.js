@@ -3,6 +3,7 @@
 const axios = require('axios');
 const { withRetry } = require('../utils/retry');
 const logger = require('../utils/logger');
+const trace = require('./trace.service');
 
 const GRAPH_API = 'https://graph.facebook.com/v21.0';
 
@@ -24,55 +25,65 @@ function accessToken() {
  * @param {string} correlationId
  */
 async function sendTemplate(recipientPhone, templateStr, bodyParams, correlationId) {
-  const log = logger.child(correlationId);
-  const token = accessToken();
+  return trace.step('whatsapp_send_template', async () => {
+    const log = logger.child(correlationId);
+    const token = accessToken();
 
-  if (!token) {
-    log.warn('whatsapp.sendTemplate: WHATSAPP_ACCESS_TOKEN not set — skipping');
-    return { skipped: true };
-  }
+    if (!token) {
+      log.warn('whatsapp.sendTemplate: WHATSAPP_ACCESS_TOKEN not set — skipping');
+      return { skipped: true };
+    }
 
-  // Parse template string "name|language"
-  const [templateName, language] = templateStr.split('|');
+    // Parse template string "name|language"
+    const [templateName, language] = templateStr.split('|');
 
-  const url = `${GRAPH_API}/${phoneNumberId()}/messages`;
+    const url = `${GRAPH_API}/${phoneNumberId()}/messages`;
 
-  const payload = {
-    messaging_product: 'whatsapp',
-    to: recipientPhone.replace(/^\+/, ''), // strip leading +
-    type: 'template',
-    template: {
-      name: templateName,
-      language: { code: language || 'en' },
-      components: [
-        {
-          type: 'body',
-          parameters: bodyParams.map((text) => ({ type: 'text', text: String(text) })),
-        },
-      ],
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: recipientPhone.replace(/^\+/, ''), // strip leading +
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: language || 'en' },
+        components: [
+          {
+            type: 'body',
+            parameters: bodyParams.map((text) => ({ type: 'text', text: String(text) })),
+          },
+        ],
+      },
+    };
+
+    log.info('whatsapp.sendTemplate', {
+      to: recipientPhone,
+      template: templateName,
+      paramCount: bodyParams.length,
+    });
+
+    const res = await withRetry(
+      () =>
+        axios.post(url, payload, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        }),
+      { retries: 2, label: 'whatsapp.sendTemplate', correlationId }
+    );
+
+    log.info('whatsapp.sendTemplate: sent', { messageId: res.data?.messages?.[0]?.id });
+    return res.data;
+  }, {
+    domain: 'whatsapp',
+    input: {
+      phone_suffix: recipientPhone?.slice(-4),  // NEVER capture full phone number
+      template: templateStr,
+      paramCount: bodyParams?.length,
     },
-  };
-
-  log.info('whatsapp.sendTemplate', {
-    to: recipientPhone,
-    template: templateName,
-    paramCount: bodyParams.length,
+    replaySafe: false,
   });
-
-  const res = await withRetry(
-    () =>
-      axios.post(url, payload, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 15000,
-      }),
-    { retries: 2, label: 'whatsapp.sendTemplate', correlationId }
-  );
-
-  log.info('whatsapp.sendTemplate: sent', { messageId: res.data?.messages?.[0]?.id });
-  return res.data;
 }
 
 /**

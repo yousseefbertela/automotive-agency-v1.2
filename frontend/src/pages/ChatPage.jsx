@@ -7,6 +7,7 @@ import SettingsPanel from '../components/SettingsPanel';
 import StatusBar from '../components/StatusBar';
 import ErrorToast from '../components/ErrorToast';
 import BrandLogos from '../components/BrandLogos';
+import DebugPanel from '../components/debugger/DebugPanel';
 import {
   sendMessage,
   sendPhoto,
@@ -66,6 +67,7 @@ export default function ChatPage() {
   const [connected, setConnected] = useState(false);
   const [sseConnected, setSseConnected] = useState(false);
   const [theme, setThemeState] = useState(() => getTheme());
+  const [debugOpen, setDebugOpen] = useState(false);
 
   const sseRef = useRef(null);
 
@@ -317,58 +319,73 @@ export default function ChatPage() {
       <div className="luxury-bg" aria-hidden />
       <div className="luxury-watermark" aria-hidden />
 
-      <ChatHeader theme={theme} onThemeToggle={handleThemeToggle} />
+      <ChatHeader
+        theme={theme}
+        onThemeToggle={handleThemeToggle}
+        onDebugToggle={() => setDebugOpen((d) => !d)}
+        debugOpen={debugOpen}
+      />
       <BrandLogos />
 
       {error && <ErrorToast message={error} onDismiss={() => setError(null)} />}
 
-      <div className="luxury-chat-container flex-1 flex flex-col min-h-0">
-        <MessageList
-          messages={messages}
-          loading={loading}
-          onFormSubmit={handleFormSubmit}
-          formDisabled={loading}
-        />
+      {/* Split-panel layout: chat (left) | debug inspector (right, when open) */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className={`luxury-chat-container flex flex-col min-h-0 transition-all duration-300 ${debugOpen ? 'w-1/2' : 'flex-1'}`}>
+          <MessageList
+            messages={messages}
+            loading={loading}
+            onFormSubmit={handleFormSubmit}
+            formDisabled={loading}
+          />
 
-        <StatusBar
-          connected={connected}
-          sseConnected={sseConnected}
-          sessionId={sessionId}
-        />
+          <StatusBar
+            connected={connected}
+            sseConnected={sseConnected}
+            sessionId={sessionId}
+          />
 
-        <div className="flex items-center gap-2 px-4 pb-2">
-          <UploadButton onUpload={handleUpload} disabled={loading} />
-          <button
-            type="button"
-            onClick={() => setShowSettings(true)}
-            className="luxury-btn-upload flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm"
-            title="Session settings"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden
+          <div className="flex items-center gap-2 px-4 pb-2">
+            <UploadButton onUpload={handleUpload} disabled={loading} />
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="luxury-btn-upload flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm"
+              title="Session settings"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-            Settings
-          </button>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+              Settings
+            </button>
+          </div>
+
+          <ChatInput onSend={handleSendMessage} disabled={loading} />
         </div>
 
-        <ChatInput onSend={handleSendMessage} disabled={loading} />
+        {/* Debug inspector panel */}
+        {debugOpen && (
+          <div className="flex-1 border-l border-slate-700/50 flex flex-col min-h-0 bg-slate-900/80 backdrop-blur-sm overflow-hidden">
+            <DebugPanel sessionId={sessionId} sseRef={sseRef} />
+          </div>
+        )}
       </div>
 
       {showSettings && (

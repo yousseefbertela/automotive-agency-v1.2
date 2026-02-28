@@ -2,6 +2,7 @@
 
 const logger = require('../utils/logger');
 const { ScenarioNotFoundError } = require('../utils/errors');
+const trace = require('../services/trace.service');
 
 /**
  * Route a parsed AI output item to the correct domain flow.
@@ -11,20 +12,29 @@ const { ScenarioNotFoundError } = require('../utils/errors');
  */
 function routeScenario(item) {
   const scenario = (item.scenario || '').toLowerCase().trim();
+  let result;
   switch (scenario) {
-    case 'vin':
-      return 'vin';
-    case 'part':
-      return 'part';
-    case 'kit':
-      return 'kit';
-    case 'finalize':
-      return 'finalize';
-    case 'unrecognized':
-      return 'unrecognized';
-    default:
-      return 'unrecognized';
+    case 'vin':          result = 'vin';          break;
+    case 'part':         result = 'part';         break;
+    case 'kit':          result = 'kit';          break;
+    case 'finalize':     result = 'finalize';     break;
+    case 'unrecognized': result = 'unrecognized'; break;
+    default:             result = 'unrecognized'; break;
   }
+
+  // Fire-and-forget trace step (synchronous function — use setImmediate to not block)
+  const ctx = trace.current();
+  if (ctx) {
+    setImmediate(() => {
+      trace.step('route_decision', async () => result, {
+        domain:     'routing',
+        input:      { scenario: item.scenario, vin: item.vin, part_name: item.part_name },
+        replaySafe: true,
+      }).catch(() => {});
+    });
+  }
+
+  return result;
 }
 
 /**
